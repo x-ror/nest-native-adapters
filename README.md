@@ -318,6 +318,20 @@ Earlier releases read `maxAge` in seconds, sent no validators and buffered
 whole files; `maxAge` now follows Express (milliseconds), so multiply old
 values by 1000.
 
+### ETags and conditional GETs
+
+Like Express, `res.send()` and `res.json()` (and so every value a Nest
+handler returns) add a weak `ETag` computed from the body, and a `GET` or
+`HEAD` whose `If-None-Match` or `If-Modified-Since` still matches is answered
+`304 Not Modified` without a body. An `ETag` set by the handler or middleware
+is kept. Streams, `StreamableFile`, `res.end()` and redirects get none, as on
+Express. The conformance suite compares ETags and 304s against Express.
+
+Choose the generator with the `etag` adapter option or `app.set("etag", …)`:
+`"weak"` (default), `"strong"`, `false`, or a `(body: Buffer) => string`
+function. Hashing costs well under a microsecond for typical JSON bodies;
+pass `etag: false` when nothing caches the responses.
+
 ### Trusted proxies
 
 By default the adapters ignore `X-Forwarded-*` headers: `req.ip`, `@Ip()`,
@@ -346,7 +360,8 @@ With a trusted socket peer, `req.ip` becomes the nearest untrusted
 conformance suite. Invalid values, including a `/0` range, throw when the
 adapter is created or the setting is applied, so the app fails at startup as
 on Express; `null`, `false` and `""` trust nothing. `app.set()` accepts any
-setting like Express, but only `trust proxy` has an effect: `x-powered-by` is
+setting like Express, but only `trust proxy`, `etag` and `subdomain offset`
+have an effect: `x-powered-by` is
 accepted silently (these adapters never send that header), and other settings
 log a warning that they are ignored.
 

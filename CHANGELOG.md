@@ -29,6 +29,8 @@ First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.
   `return503OnClosing`.
 - `req.secure`, `req.host` and `req.subdomains` as on Express, with the
   `subdomain offset` setting.
+- Express's ETags on `res.send()` / `res.json()` bodies with `304` for fresh
+  conditional GETs, configurable with the `etag` option or setting.
 - Response events (`finish`, `close`) and native HTTPS on Bun too.
 
 ### Fixed (from pre-release builds)

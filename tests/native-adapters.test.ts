@@ -371,6 +371,62 @@ describe("native Nest adapters", () => {
     response.removeAllListeners("finish");
     expect(response.listeners("finish")).toEqual([]);
   });
+  it("adds Express's ETag to res.send/res.json bodies and answers fresh GETs with 304", async () => {
+    expect(() => new NodeHttpAdapter({ etag: "bogus" as never })).toThrow("unknown value for etag");
+    const setups: [unknown, (etag: string | null) => void][] = [
+      [undefined, (etag) => expect(etag).toMatch(/^W\/"1a-[A-Za-z0-9+/]{27}"$/)],
+      ["strong", (etag) => expect(etag).toMatch(/^"1a-[A-Za-z0-9+/]{27}"$/)],
+      [(body: Buffer) => `"len-${body.length}"`, (etag) => expect(etag).toBe('"len-26"')],
+      [false, (etag) => expect(etag).toBeNull()],
+    ];
+    for (const [setting, check] of setups) {
+      const adapter = new NodeHttpAdapter();
+      const app = await NestFactory.create(FixtureModule, adapter, { logger: false });
+      apps.push(app);
+      if (setting !== undefined) (app as unknown as NodeHttpAdapter).set("etag", setting);
+      await app.init();
+      const first = await adapter.fetch(new Request("http://localhost/api"));
+      expect(await first.json()).toEqual({ message: "real Nest DI" });
+      const etag = first.headers.get("etag");
+      check(etag);
+      if (!etag) continue;
+      const conditional = { headers: { "if-none-match": etag } };
+      const fresh = await adapter.fetch(new Request("http://localhost/api", conditional));
+      expect(fresh.status).toBe(304);
+      expect(await fresh.text()).toBe("");
+      const head = await adapter.fetch(
+        new Request("http://localhost/api", { method: "HEAD", ...conditional }),
+      );
+      expect(head.status).toBe(304);
+      // Only GET and HEAD are conditional; a POST is answered in full.
+      const post = await adapter.fetch(
+        new Request("http://localhost/api/echo", {
+          method: "POST",
+          headers: { "content-type": "application/json", "if-none-match": "*" },
+          body: '{"a":1}',
+        }),
+      );
+      expect(post.status).toBe(201);
+      expect(await post.json()).toEqual({ a: 1 });
+    }
+
+    // An ETag the handler sets is kept and still drives freshness.
+    const adapter = new NodeHttpAdapter();
+    const app = await NestFactory.create(FixtureModule, adapter, { logger: false });
+    apps.push(app);
+    app.use((_req: NativeRequest, res: NativeResponse, next: () => void) => {
+      res.setHeader("etag", '"mine"');
+      next();
+    });
+    await app.init();
+    const own = await adapter.fetch(new Request("http://localhost/api"));
+    expect(own.headers.get("etag")).toBe('"mine"');
+    await own.arrayBuffer();
+    const ownFresh = await adapter.fetch(
+      new Request("http://localhost/api", { headers: { "if-none-match": '"mine"' } }),
+    );
+    expect(ownFresh.status).toBe(304);
+  });
   it("routes bare request targets by their own path on the fetch path", async () => {
     const adapter = new NodeHttpAdapter();
     const app = await NestFactory.create(FixtureModule, adapter, { logger: false });

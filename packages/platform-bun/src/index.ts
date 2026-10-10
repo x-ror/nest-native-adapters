@@ -17,9 +17,12 @@ export {
 
 export type {
   CookieWriter,
+  ETagFunction,
+  ETagSetting,
   NativeAdapterOptions,
   NativeRequest,
   ResponseCookieOptions,
+  ResponseHost,
   StaticAssetsOptions,
   TrustProxy,
   UploadedFileData,

@@ -5,6 +5,8 @@ import { STATUS_CODES } from "node:http";
 import { StreamableFile, type CookieSerializeOptions } from "@nestjs/common";
 import { AbstractHttpAdapter } from "@nestjs/core";
 import { CookieSigner } from "@nestjs/core/helpers/cookies/cookie-signer.js";
+import { isFresh } from "./conditional.js";
+import type { ETagFunction } from "./etag.js";
 import { NullObject, type NativeRequest } from "./request.js";
 
 class NativeSseResponse extends PassThrough {
@@ -45,21 +47,28 @@ export interface ResponseCookieOptions extends Omit<
   encode?: never;
 }
 
-/** Writes `Set-Cookie` headers; the adapter (Nest's `setCookie()`) in practice. */
-export interface CookieWriter {
+/**
+ * What a response needs from its adapter: Nest's `setCookie()` for
+ * `res.cookie()`, and Express's `etag fn` for `res.send()` / `res.json()`.
+ */
+export interface ResponseHost {
   setCookie(
     response: NativeResponse,
     name: string,
     value: string,
     options?: CookieSerializeOptions,
   ): unknown;
+  /** Express's `etag fn`; undefined when the `etag` setting is off. */
+  readonly generateETag?: ETagFunction;
 }
+/** @deprecated Renamed to `ResponseHost`. */
+export type CookieWriter = ResponseHost;
 
 /**
  * For responses created outside an adapter: Nest's own `setCookie()` with no
  * signer, so serialization rules and error messages are exactly Nest's.
  */
-const detachedCookieWriter: CookieWriter = {
+const detachedCookieWriter: ResponseHost = {
   setCookie: (response, name, value, options) =>
     AbstractHttpAdapter.prototype.setCookie.call(
       {
@@ -86,13 +95,13 @@ export class NativeResponse {
 
   // True private fields: the adapter (and its cookie secret) and the request
   // never show up when a response is logged, inspected or serialized.
-  readonly #cookies: CookieWriter;
+  readonly #cookies: ResponseHost;
   readonly #request: NativeRequest | undefined;
   #events: EventEmitter | undefined;
 
   constructor(
     protected readonly method: string,
-    cookies: CookieWriter = detachedCookieWriter,
+    cookies: ResponseHost = detachedCookieWriter,
     request?: NativeRequest,
   ) {
     this.#cookies = cookies;
@@ -235,7 +244,7 @@ export class NativeResponse {
   json(value: unknown): this {
     const text = JSON.stringify(value);
     this.headerValues["content-type"] ??= "application/json; charset=utf-8";
-    return this.finish(text ?? null);
+    return text === undefined ? this.finish(null) : this.sendEntity(text);
   }
   send(value?: unknown): this {
     const headers = this.headerValues;
@@ -254,7 +263,7 @@ export class NativeResponse {
     }
     if (value instanceof Uint8Array) {
       headers["content-type"] ??= "application/octet-stream";
-      return this.finish(value);
+      return this.sendEntity(value);
     }
     if (value !== null && typeof value === "object") return this.json(value);
     if (value === undefined || value === null) return this.end();
@@ -265,8 +274,37 @@ export class NativeResponse {
       typeof value === "boolean" ||
       typeof value === "bigint"
     )
-      return this.end(String(value));
+      return this.sendEntity(String(value));
     throw new TypeError("Unsupported response body type.");
+  }
+  /**
+   * The tail of Express's `res.send()` for a complete body: an ETag from the
+   * `etag` setting unless one is set, then `304` for a fresh GET or HEAD.
+   * `end()`, redirects and streams skip both, as on Express.
+   */
+  private sendEntity(body: string | Uint8Array): this {
+    const generateETag = this.#cookies.generateETag;
+    if (generateETag && this.headerValues.etag === undefined) {
+      // Encode once: the same bytes are hashed and sent.
+      const bytes =
+        typeof body === "string"
+          ? Buffer.from(body, "utf8")
+          : Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+      const etag = generateETag(bytes, "utf8");
+      if (etag) this.headerValues.etag = etag;
+      body = bytes;
+    }
+    const request = this.#request;
+    const status = this.statusCode;
+    if (
+      request &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      ((status >= 200 && status < 300) || status === 304) &&
+      isFresh(request, this)
+    ) {
+      this.statusCode = 304;
+    }
+    return this.finish(body);
   }
   redirect(statusOrUrl: number | string, url?: string): this {
     this.statusCode = typeof statusOrUrl === "number" ? statusOrUrl : 302;

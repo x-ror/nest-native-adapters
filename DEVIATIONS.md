@@ -18,7 +18,7 @@ history, not active workspace packages.
   Bun rather than flushed to the socket. Forwarded headers are interpreted
   only through Express's `trust proxy` semantics (`trustProxy` option or
   `app.set("trust proxy")`), off by default. Of Express's settings, only
-  `trust proxy` and `subdomain offset` have an effect. Multipart files are
+  `trust proxy`, `etag` and `subdomain offset` have an effect. Multipart files are
   native `File` values in `@Body()`. Static files follow `express.static()`
   (serve-static and send), except that content types come from a built-in
   table of common web types, and on Bun a full response to a request with a

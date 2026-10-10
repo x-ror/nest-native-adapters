@@ -2,6 +2,7 @@ import { createReadStream, openAsBlob, type Stats } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { StreamableFile } from "@nestjs/common";
+import { isFresh, parseHttpDate, parseTokenList } from "./conditional.js";
 import type { NativeRequest } from "./request.js";
 import type { NativeResponse } from "./response.js";
 import type { Handler, Next } from "./router.js";
@@ -130,27 +131,6 @@ function parseMaxAge(value: number | string | undefined): number {
   return Number.isNaN(milliseconds) ? 0 : Math.min(Math.max(0, milliseconds), MAX_MAXAGE);
 }
 
-/** send's token list parser for If-Match / If-None-Match. */
-function parseTokenList(value: string): string[] {
-  const list: string[] = [];
-  let start = 0;
-  let end = 0;
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code === 0x20) {
-      if (start === end) start = end = i + 1;
-    } else if (code === 0x2c) {
-      if (start !== end) list.push(value.slice(start, end));
-      start = end = i + 1;
-    } else end = i + 1;
-  }
-  if (start !== end) list.push(value.slice(start, end));
-  return list;
-}
-
-const parseHttpDate = (value: string | undefined): number =>
-  typeof value === "string" ? Date.parse(value) : Number.NaN;
-
 type Range = { start: number; end: number };
 
 /** range-parser 1.3 with `combine: true`: -2 is malformed, -1 unsatisfiable. */
@@ -192,25 +172,6 @@ function parseRange(size: number, header: string): Range[] | -1 | -2 {
   }
   ordered.length = j + 1;
   return ordered.sort((a, b) => a.index - b.index).map(({ start, end }) => ({ start, end }));
-}
-
-/** The `fresh` package: whether a conditional GET can be answered with 304. */
-function isFresh(req: NativeRequest, res: NativeResponse): boolean {
-  const modifiedSince = req.headers["if-modified-since"];
-  const noneMatch = req.headers["if-none-match"];
-  if (!modifiedSince && !noneMatch) return false;
-  const cacheControl = req.headers["cache-control"];
-  if (cacheControl && /(?:^|,)\s*?no-cache\s*?(?:,|$)/.test(cacheControl)) return false;
-  if (noneMatch) {
-    if (noneMatch === "*") return true;
-    const etag = res.getHeader("etag") as string | undefined;
-    if (!etag) return false;
-    return parseTokenList(noneMatch).some(
-      (match) => match === etag || match === `W/${etag}` || `W/${match}` === etag,
-    );
-  }
-  const lastModified = res.getHeader("last-modified") as string | undefined;
-  return Boolean(lastModified) && parseHttpDate(lastModified) <= parseHttpDate(modifiedSince);
 }
 
 function isPreconditionFailure(req: NativeRequest, res: NativeResponse): boolean {
@@ -486,8 +447,10 @@ export function serveStatic(root: string, options: StaticAssetsOptions = {}): Ha
     if (rangeHeader && res.statusCode === 200) {
       // Bun applies Range to file-backed bodies itself, even when the full file is
       // the right answer (If-Range stale, several ranges, acceptRanges: false).
-      // Small files go out from memory; larger ones stream (on Bun, without Content-Length).
-      if (length <= FULL_BODY_IN_MEMORY) res.send(new Uint8Array(await blob.arrayBuffer()));
+      // Small files go out from memory (an in-memory Blob: not auto-ranged, and
+      // like send it gets no body ETag); larger ones stream (on Bun, without
+      // Content-Length).
+      if (length <= FULL_BODY_IN_MEMORY) res.send(new Blob([await blob.arrayBuffer()]));
       else res.send(new StreamableFile(createReadStream(file)));
       return;
     }

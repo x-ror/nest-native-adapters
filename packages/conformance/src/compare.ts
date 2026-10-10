@@ -388,6 +388,8 @@ async function snapshot(url: string, init?: RequestInit, files = false) {
         ? response.headers.get("content-length")
         : null,
     middleware: response.headers.get("x-middleware"),
+    // Express's default weak ETag on res.send()/res.json() bodies, and send's on files.
+    etag: response.headers.get("etag"),
     customHeader: response.headers.get("x-example"),
     location: response.headers.get("location"),
     // Express redirects negotiate an HTML page (`Vary: Accept`); ours are plain text (DEVIATIONS.md).
@@ -403,10 +405,6 @@ async function snapshot(url: string, init?: RequestInit, files = false) {
     cookies: response.headers.getSetCookie().map(normalizeSetCookie),
     ...(files
       ? {
-          // send's file ETags are W/"<size hex>-<mtime hex>"; Express also hashes dynamic bodies.
-          fileEtag: /^W\/"[0-9a-f]+-[0-9a-f]+"$/.test(response.headers.get("etag") ?? "")
-            ? response.headers.get("etag")
-            : null,
           fileHeaders: [
             "last-modified",
             "cache-control",
@@ -480,6 +478,24 @@ export async function compareAdapters(
     ]);
     assert.deepEqual(readByAdapter, readByReference, `${type}: signed cookie read`);
     assert.equal((JSON.parse(readByAdapter.body) as { token: string }).token, "user-42");
+    // Conditional GETs with Express's own ETags: a fresh one is answered 304.
+    for (const path of ["/api", "/api/header", "/api/manual", "/api/items/42?tag=a"]) {
+      const first = await fetch(`${referenceBase}${path}`);
+      await first.arrayBuffer();
+      const etag = first.headers.get("etag");
+      assert.ok(etag, `Express sent no ETag for ${path}`);
+      const conditional: Case[] = [
+        [path, { headers: { "if-none-match": etag, "cache-control": "max-age=0" } }],
+        [
+          path,
+          { method: "HEAD", headers: { "if-none-match": etag, "cache-control": "max-age=0" } },
+        ],
+        [path, { headers: { "if-none-match": '"other"', "cache-control": "max-age=0" } }],
+        [path, { headers: { "if-none-match": etag } }],
+      ];
+      await compareCases(`${type} conditional`, conditional, base, referenceBase);
+      comparisons += conditional.length;
+    }
     for (const [body, status] of [
       ["{invalid", 400],
       ["x".repeat(110 * 1024), 413],

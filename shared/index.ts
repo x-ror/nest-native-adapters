@@ -32,6 +32,7 @@ import {
 import { NativeResponse } from "./response.js";
 import { compileTrust, type TrustFunction, type TrustProxy } from "./proxy.js";
 import { serveStatic, type StaticAssetsOptions } from "./static.js";
+import { compileETag, type ETagFunction, type ETagSetting } from "./etag.js";
 
 export { NativeResponse } from "./response.js";
 export {
@@ -58,7 +59,13 @@ export {
   type TrustProxy,
 } from "./proxy.js";
 export type { NativeRequest } from "./request.js";
-export type { CookieWriter, ResponseBody, ResponseCookieOptions } from "./response.js";
+export type {
+  CookieWriter,
+  ResponseBody,
+  ResponseCookieOptions,
+  ResponseHost,
+} from "./response.js";
+export type { ETagFunction, ETagSetting } from "./etag.js";
 export interface NativeAdapterOptions {
   bodyLimit?: number;
   /** Limit for multipart bodies (file uploads); defaults to `bodyLimit`. */
@@ -70,6 +77,12 @@ export interface NativeAdapterOptions {
    * protocol and host. Off by default; `app.set("trust proxy", value)` works too.
    */
   trustProxy?: TrustProxy;
+  /**
+   * Express's `etag` setting for `res.send()` / `res.json()` bodies: `"weak"`
+   * (default, like Express), `"strong"`, `false` or a function. Also
+   * `app.set("etag", value)`.
+   */
+  etag?: ETagSetting;
 }
 /** Express's view engine signature: `(path, options, callback)`. */
 export type ViewRenderer = (
@@ -107,6 +120,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   protected trust: TrustFunction | undefined;
   /** Express's `subdomain offset` setting, used by `req.subdomains`. */
   protected subdomainOffset: unknown = DEFAULT_SUBDOMAIN_OFFSET;
+  /** Express's `etag fn`, used by `res.send()` / `res.json()`; see `ResponseHost`. */
+  generateETag: ETagFunction | undefined;
 
   constructor(protected readonly adapterOptions: NativeAdapterOptions = {}) {
     super();
@@ -154,13 +169,14 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       };
     }
     this.trust = compileTrust(options.trustProxy);
+    this.generateETag = compileETag(options.etag ?? "weak");
     this.setInstance(instance);
   }
 
   /**
    * Express's `app.set()`, so `app.set("trust proxy", 1)` keeps working after a
-   * migration. Like Express, any setting name is accepted. Only `trust proxy`
-   * and `subdomain offset` have an effect; `x-powered-by` is silently accepted (these adapters never
+   * migration. Like Express, any setting name is accepted. Only `trust proxy`,
+   * `etag` and `subdomain offset` have an effect; `x-powered-by` is silently accepted (these adapters never
    * send that header), and any other setting logs a warning that it is
    * ignored. A call through Nest's app runs in its exception zone, so an
    * invalid `trust proxy` value fails startup, as it does on Express.
@@ -168,6 +184,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   set(setting: string, value: unknown): this {
     if (setting === "trust proxy") {
       this.trust = compileTrust(value as TrustProxy);
+    } else if (setting === "etag") {
+      this.generateETag = compileETag(value);
     } else if (setting === "subdomain offset") {
       // Stored as given: like Express, `req.subdomains` passes it to Array#slice.
       this.subdomainOffset = value;

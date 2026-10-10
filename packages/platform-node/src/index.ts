@@ -9,7 +9,7 @@ import {
   NativeResponse,
   NullObject,
   parseQuery,
-  type CookieWriter,
+  type ResponseHost,
   type NativeRequest,
   type ResponseBody,
   type ClientConnection,
@@ -26,9 +26,12 @@ export {
 
 export type {
   CookieWriter,
+  ETagFunction,
+  ETagSetting,
   NativeAdapterOptions,
   NativeRequest,
   ResponseCookieOptions,
+  ResponseHost,
   StaticAssetsOptions,
   TrustProxy,
   UploadedFileData,
@@ -134,7 +137,7 @@ class NodeResponse extends NativeResponse {
   constructor(
     method: string,
     private readonly outgoing: ServerResponse,
-    cookies: CookieWriter,
+    cookies: ResponseHost,
     request: NativeRequest,
   ) {
     super(method, cookies, request);
