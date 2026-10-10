@@ -4,17 +4,15 @@ import { PassThrough, Readable, pipeline } from "node:stream";
 import type { TLSSocket } from "node:tls";
 import { PayloadTooLargeException, type NestApplicationOptions } from "@nestjs/common";
 import {
+  ClientRequest,
   NativeHttpAdapter,
   NativeResponse,
   NullObject,
-  hostnameOf,
-  resolveProxy,
-  subdomainsOf,
   parseQuery,
   type CookieWriter,
   type NativeRequest,
   type ResponseBody,
-  type ProxyView,
+  type ClientConnection,
   type TrustFunction,
 } from "@shared";
 
@@ -40,7 +38,7 @@ export type {
 const EMPTY_BODY = Buffer.alloc(0);
 
 /** Request facade read straight from `IncomingMessage`; costly fields are lazy. */
-class NodeRequest implements NativeRequest {
+class NodeRequest extends ClientRequest implements NativeRequest {
   readonly method: string;
   url: string;
   originalUrl: string;
@@ -51,14 +49,14 @@ class NodeRequest implements NativeRequest {
   private search: string;
   private parsedQuery?: Record<string, string | string[]>;
   private webRequest?: Request;
-  private proxyView?: ProxyView;
 
   constructor(
     readonly incoming: IncomingMessage,
     private readonly outgoing: ServerResponse,
-    private readonly trust: TrustFunction | undefined,
-    private readonly subdomainOffset: number,
+    trust: TrustFunction | undefined,
+    subdomainOffset: unknown,
   ) {
+    super(trust, subdomainOffset);
     this.method = incoming.method ?? "GET";
     let url = incoming.url ?? "/";
     if (url.charCodeAt(0) !== 47) {
@@ -76,43 +74,13 @@ class NodeRequest implements NativeRequest {
   get headers(): Record<string, string> {
     return this.incoming.headers as Record<string, string>;
   }
-  get hostname(): string {
-    const host = this.trust ? this.proxy().host : this.incoming.headers.host;
-    return hostnameOf(this.trust ? host : (host ?? "localhost"))!;
-  }
-  get protocol(): string {
-    if (this.trust) return this.proxy().protocol;
-    return (this.incoming.socket as TLSSocket).encrypted ? "https" : "http";
-  }
-  get ip(): string | undefined {
-    return this.trust ? this.proxy().ip : this.incoming.socket.remoteAddress;
-  }
-  get secure(): boolean {
-    return this.protocol === "https";
-  }
-  get host(): string | undefined {
-    return (this.trust ? this.proxy().host : this.incoming.headers.host) || undefined;
-  }
-  get subdomains(): string[] {
-    return subdomainsOf(this.hostname, this.subdomainOffset);
-  }
-  get ips(): string[] {
-    return this.trust ? this.proxy().ips : [];
-  }
-  /** Express's `trust proxy` view of this request, computed once (see `resolveProxy`). */
-  private proxy(): ProxyView {
+  protected connection(): ClientConnection {
     const { headers, socket } = this.incoming;
-    return (this.proxyView ??= resolveProxy(
-      {
-        socketAddress: socket.remoteAddress,
-        protocol: (socket as TLSSocket).encrypted ? "https" : "http",
-        host: headers.host ?? "localhost",
-        forwardedFor: headers["x-forwarded-for"] as string | undefined,
-        forwardedProto: headers["x-forwarded-proto"] as string | undefined,
-        forwardedHost: headers["x-forwarded-host"] as string | undefined,
-      },
-      this.trust!,
-    ));
+    return {
+      socketAddress: socket.remoteAddress,
+      protocol: (socket as TLSSocket).encrypted ? "https" : "http",
+      host: headers.host,
+    };
   }
   get query(): Record<string, string | string[]> {
     return (this.parsedQuery ??= parseQuery(this.search));
@@ -171,17 +139,9 @@ class NodeResponse extends NativeResponse {
   ) {
     super(method, cookies, request);
   }
-  override on(event: string, listener: (...args: any[]) => void): this {
-    this.outgoing.on(event, listener);
-    return this;
-  }
-  override once(event: string, listener: (...args: any[]) => void): this {
-    this.outgoing.once(event, listener);
-    return this;
-  }
-  override off(event: string, listener: (...args: any[]) => void): this {
-    this.outgoing.off(event, listener);
-    return this;
+  /** Response events are the ServerResponse's own. */
+  protected override eventTarget(): ServerResponse {
+    return this.outgoing;
   }
   protected override commit(body: ResponseBody): void {
     const outgoing = this.outgoing;

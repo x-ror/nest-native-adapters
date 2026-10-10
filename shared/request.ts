@@ -174,88 +174,47 @@ function headersObject(headers: Headers): Record<string, string> {
   return native.toJSON ? native.toJSON() : Object.fromEntries(headers);
 }
 
-/** Express's `req.subdomains` for a hostname and a `subdomain offset`. */
-export function subdomainsOf(hostname: string | undefined, offset: number): string[] {
+/** Express's default `subdomain offset` setting. */
+export const DEFAULT_SUBDOMAIN_OFFSET = 2;
+
+/** Express's `req.subdomains`; like Express, the offset goes to `Array#slice` as given. */
+export function subdomainsOf(hostname: string | undefined, offset: unknown): string[] {
   if (!hostname) return [];
-  return (isIP(hostname) ? [hostname] : hostname.split(".").reverse()).slice(offset);
+  return (isIP(hostname) ? [hostname] : hostname.split(".").reverse()).slice(offset as number);
 }
 
-/** Request facade over a fetch `Request`; URL parts are sliced without a reparse. */
-class FetchRequest implements NativeRequest {
-  ip: string | undefined;
-  ips: string[] = [];
-  readonly method: string;
-  url: string;
-  originalUrl: string;
-  path: string;
-  hostname: string;
+/** What a request facade knows about its connection before `trust proxy` applies. */
+export interface ClientConnection {
+  socketAddress: string | undefined;
+  /** `http` or `https` of the connection itself. */
   protocol: string;
-  readonly headers: Record<string, string>;
-  params = new NullObject<string | string[]>();
-  query: Record<string, string | string[]>;
-  body?: unknown;
-  rawBody?: Buffer;
-  readonly #urlHost: string;
-  readonly #subdomainOffset: number;
-
-  constructor(
-    readonly raw: Request,
-    ip: string | undefined,
-    subdomainOffset: number,
-  ) {
-    // `Request.url` is already an absolute, normalized URL; slicing avoids a reparse.
-    const full = raw.url;
-    const hostStart = full.indexOf("://") + 3;
-    const pathStart = full.indexOf("/", hostStart);
-    const url = pathStart === -1 ? "/" : full.slice(pathStart);
-    const queryStart = url.indexOf("?");
-    this.ip = ip;
-    this.method = raw.method;
-    this.url = url;
-    this.originalUrl = url;
-    this.path = queryStart === -1 ? url : url.slice(0, queryStart);
-    this.#urlHost = full
-      .slice(hostStart, pathStart === -1 ? undefined : pathStart)
-      .replace(/^.*@/, "");
-    this.hostname = this.#urlHost.replace(/:\d*$/, "");
-    this.protocol = full.slice(0, hostStart - 3);
-    this.headers = headersObject(raw.headers);
-    this.query = queryStart === -1 ? new NullObject() : parseQuery(url.slice(queryStart + 1));
-    this.#subdomainOffset = subdomainOffset;
-  }
-  get secure(): boolean {
-    return this.protocol === "https";
-  }
-  get host(): string | undefined {
-    return this.headers.host || this.#urlHost || undefined;
-  }
-  get subdomains(): string[] {
-    return subdomainsOf(this.hostname, this.#subdomainOffset);
-  }
-}
-
-export function createRequest(
-  raw: Request,
-  ip?: string,
-  trust?: TrustFunction,
-  subdomainOffset = 2,
-): NativeRequest {
-  const request = new FetchRequest(raw, ip, subdomainOffset);
-  if (trust) applyTrustedProxy(request, trust);
-  return request;
+  /** The Host header (port included), or undefined when the client sent none. */
+  host: string | undefined;
 }
 
 /**
- * Applies Express's `trust proxy` rules to a request built from a fetch
- * `Request`. Like the Node facade, the client fields are computed on first
- * read, so the trust function runs inside the handler's error handling and
- * only for requests that use them.
+ * Express's client getters (`ip`, `ips`, `protocol`, `secure`, `host`,
+ * `hostname`, `subdomains`), shared by the Node and fetch facades. With a
+ * trust function they follow trusted `X-Forwarded-*` headers, computed once
+ * on first read so the trust function runs inside the handler's error
+ * handling; without one they describe the connection.
  */
-function applyTrustedProxy(request: FetchRequest, trust: TrustFunction): void {
-  const { headers, ip: socketAddress, host, protocol } = request;
-  let view: ProxyView | undefined;
-  const resolve = (): ProxyView =>
-    (view ??= resolveProxy(
+export abstract class ClientRequest {
+  abstract readonly headers: Record<string, string>;
+  #view: ProxyView | undefined;
+
+  constructor(
+    private readonly trust: TrustFunction | undefined,
+    private readonly subdomainOffset: unknown,
+  ) {}
+
+  protected abstract connection(): ClientConnection;
+
+  private view(): ProxyView {
+    if (this.#view) return this.#view;
+    const { socketAddress, protocol, host } = this.connection();
+    const headers = this.headers;
+    return (this.#view = resolveProxy(
       {
         socketAddress,
         protocol,
@@ -264,20 +223,91 @@ function applyTrustedProxy(request: FetchRequest, trust: TrustFunction): void {
         forwardedProto: headers["x-forwarded-proto"],
         forwardedHost: headers["x-forwarded-host"],
       },
-      trust,
+      this.trust!,
     ));
-  const lazy = <T>(read: () => T): PropertyDescriptor => ({
-    configurable: true,
-    enumerable: true,
-    get: read,
-  });
-  Object.defineProperties(request, {
-    ip: lazy(() => resolve().ip),
-    ips: lazy(() => resolve().ips),
-    protocol: lazy(() => resolve().protocol),
-    hostname: lazy(() => hostnameOf(resolve().host)),
-    host: lazy(() => resolve().host),
-  });
+  }
+  get ip(): string | undefined {
+    return this.trust ? this.view().ip : this.connection().socketAddress;
+  }
+  get ips(): string[] {
+    return this.trust ? this.view().ips : [];
+  }
+  get protocol(): string {
+    return this.trust ? this.view().protocol : this.connection().protocol;
+  }
+  get secure(): boolean {
+    return this.protocol === "https";
+  }
+  get host(): string | undefined {
+    return (this.trust ? this.view().host : this.connection().host) || undefined;
+  }
+  /**
+   * The host without its port. A request without a Host header reports
+   * `localhost`; an empty trusted `X-Forwarded-Host` gives `undefined`, as on Express.
+   */
+  get hostname(): string {
+    const host = this.host;
+    if (host === undefined && this.connection().host === undefined) return "localhost";
+    return hostnameOf(host)!;
+  }
+  get subdomains(): string[] {
+    return subdomainsOf(this.hostname, this.subdomainOffset);
+  }
+}
+
+/** Request facade over a fetch `Request`; URL parts are sliced without a reparse. */
+class FetchRequest extends ClientRequest implements NativeRequest {
+  readonly method: string;
+  url: string;
+  originalUrl: string;
+  path: string;
+  readonly headers: Record<string, string>;
+  params = new NullObject<string | string[]>();
+  query: Record<string, string | string[]>;
+  body?: unknown;
+  rawBody?: Buffer;
+  readonly #connection: ClientConnection;
+
+  constructor(
+    readonly raw: Request,
+    ip: string | undefined,
+    trust: TrustFunction | undefined,
+    subdomainOffset: unknown,
+  ) {
+    super(trust, subdomainOffset);
+    // `Request.url` is already an absolute, normalized URL; slicing avoids a reparse.
+    const full = raw.url;
+    const hostStart = full.indexOf("://") + 3;
+    const pathStart = full.indexOf("/", hostStart);
+    const url = pathStart === -1 ? "/" : full.slice(pathStart);
+    const queryStart = url.indexOf("?");
+    this.method = raw.method;
+    this.url = url;
+    this.originalUrl = url;
+    this.path = queryStart === -1 ? url : url.slice(0, queryStart);
+    this.headers = headersObject(raw.headers);
+    this.query = queryStart === -1 ? new NullObject() : parseQuery(url.slice(queryStart + 1));
+    // Like Express, the host comes from the Host header; the URL's is a fallback
+    // for Requests built without one (Bun always sends it).
+    const urlHost = full.slice(hostStart, pathStart === -1 ? undefined : pathStart);
+    this.#connection = {
+      socketAddress: ip,
+      protocol: full.slice(0, hostStart - 3),
+      host: this.headers.host || urlHost.replace(/^.*@/, "") || undefined,
+    };
+  }
+  protected connection(): ClientConnection {
+    return this.#connection;
+  }
+}
+
+export function createRequest(
+  raw: Request,
+  ip?: string,
+  trust?: TrustFunction,
+  subdomainOffset: unknown = DEFAULT_SUBDOMAIN_OFFSET,
+): NativeRequest {
+  return new FetchRequest(raw, ip, trust, subdomainOffset);
 }
 
 export type BodyReader = (request: NativeRequest, limit: number) => Promise<Buffer> | Buffer | null;

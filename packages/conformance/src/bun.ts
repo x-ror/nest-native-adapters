@@ -5,7 +5,7 @@ import { BunHttpAdapter, BunWsAdapter } from "nestjs-adapter-bun";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { io as connect } from "socket.io-client";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,8 +21,11 @@ await compareAdapters(
 
 await checkLifecycle("native-bun", (options) => new BunHttpAdapter(options));
 
-// Native HTTPS on Bun.serve with Nest's httpsOptions (key and cert).
-{
+// Native HTTPS on Bun.serve with Nest's httpsOptions (key and cert). The
+// certificate comes from the openssl CLI; without it the check is skipped.
+if (spawnSync("openssl", ["version"]).error) {
+  console.log("native-bun: native HTTPS check skipped (openssl not installed).");
+} else {
   const dir = mkdtempSync(join(tmpdir(), "native-bun-tls-"));
   try {
     execFileSync(

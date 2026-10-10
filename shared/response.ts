@@ -288,25 +288,54 @@ export class NativeResponse {
     return this.raw.write(chunk);
   }
   /**
-   * Response events on the fetch transport (Bun): `finish` once the body has
-   * been handed to the runtime (buffered bodies, files) or fully read
-   * (streams), then `close`; a stream the client abandons emits only `close`.
-   * The Node adapter forwards these to its `ServerResponse` instead.
+   * Response events with Node's EventEmitter API. On the fetch transport (Bun)
+   * the adapter emits `finish` then `close`: for streamed bodies once the
+   * client has read the last chunk, while a stream the client abandons emits
+   * only `close`. For buffered and file bodies Bun reports no completion, so
+   * `finish` means the body was handed to Bun. The Node adapter forwards to its
+   * `ServerResponse` instead (see `eventTarget()`).
    */
+  protected eventTarget(): EventEmitter {
+    return (this.#events ??= new EventEmitter());
+  }
   on(event: string, listener: (...args: any[]) => void): this {
-    (this.#events ??= new EventEmitter()).on(event, listener);
+    this.eventTarget().on(event, listener);
     return this;
   }
+  addListener(event: string, listener: (...args: any[]) => void): this {
+    return this.on(event, listener);
+  }
   once(event: string, listener: (...args: any[]) => void): this {
-    (this.#events ??= new EventEmitter()).once(event, listener);
+    this.eventTarget().once(event, listener);
+    return this;
+  }
+  prependListener(event: string, listener: (...args: any[]) => void): this {
+    this.eventTarget().prependListener(event, listener);
+    return this;
+  }
+  prependOnceListener(event: string, listener: (...args: any[]) => void): this {
+    this.eventTarget().prependOnceListener(event, listener);
     return this;
   }
   off(event: string, listener: (...args: any[]) => void): this {
-    this.#events?.off(event, listener);
+    this.eventTarget().off(event, listener);
     return this;
   }
   removeListener(event: string, listener: (...args: any[]) => void): this {
     return this.off(event, listener);
+  }
+  removeAllListeners(event?: string): this {
+    this.eventTarget().removeAllListeners(event);
+    return this;
+  }
+  emit(event: string, ...args: unknown[]): boolean {
+    return this.eventTarget().emit(event, ...args);
+  }
+  listeners(event: string): Function[] {
+    return this.eventTarget().listeners(event);
+  }
+  listenerCount(event: string): number {
+    return this.eventTarget().listenerCount(event);
   }
 
   /** Sends the response; the default produces a fetch `Response` for `done`. */
@@ -317,19 +346,21 @@ export class NativeResponse {
       if (typeof value === "string") headers.set(name, value);
       else for (const entry of value) headers.append(name, entry);
     }
+    const finished = () => {
+      this.#events?.emit("finish");
+      this.#events?.emit("close");
+    };
+    const closed = () => this.#events?.emit("close");
     this.response = new Response(
-      body instanceof Readable ? (Readable.toWeb(body) as unknown as BodyInit) : (body as BodyInit),
+      body instanceof Readable ? trackedStream(body, finished, closed) : (body as BodyInit),
       { status: this.statusCode, headers },
     );
     this.complete?.(this.response);
-    if (body instanceof Readable) {
-      body.once("end", () => this.#events?.emit("finish"));
-      body.once("close", () => this.#events?.emit("close"));
-    } else {
-      queueMicrotask(() => {
-        this.#events?.emit("finish");
-        this.#events?.emit("close");
-      });
+    if (!(body instanceof Readable)) {
+      // Bun reports no completion for buffered or file bodies: `finish` means handed
+      // over, unless the client is already gone.
+      const aborted = this.#request?.raw.signal.aborted;
+      queueMicrotask(aborted ? closed : finished);
     }
   }
 
@@ -376,4 +407,47 @@ function parseVary(header: string): string[] {
     if (field) fields.push(field);
   }
   return fields;
+}
+
+/**
+ * A web stream that reads `readable` only when the consumer pulls, so `finished`
+ * runs once the client has taken the last chunk, and `closed` alone when the
+ * client cancels first. (Readable.toWeb buffers ahead, ending the Node stream
+ * long before the client has read it.)
+ */
+function trackedStream(
+  readable: Readable,
+  finished: () => void,
+  closed: () => void,
+): ReadableStream<Uint8Array> {
+  const chunks = readable[Symbol.asyncIterator]() as AsyncIterator<string | Uint8Array>;
+  let settled = false;
+  const settle = (callback: () => void) => {
+    if (settled) return;
+    settled = true;
+    callback();
+  };
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const { value, done } = await chunks.next();
+          if (done) {
+            controller.close();
+            settle(finished);
+          } else {
+            controller.enqueue(typeof value === "string" ? Buffer.from(value) : value);
+          }
+        } catch (error) {
+          controller.error(error);
+          settle(closed);
+        }
+      },
+      cancel() {
+        readable.destroy();
+        settle(closed);
+      },
+    },
+    { highWaterMark: 0 },
+  );
 }

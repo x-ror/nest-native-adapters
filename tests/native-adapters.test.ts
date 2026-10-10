@@ -318,8 +318,8 @@ describe("native Nest adapters", () => {
       res.on("finish", removed).off("finish", removed);
       next();
     });
-    (app as unknown as NodeHttpAdapter).set("subdomain offset", 1);
-    expect(() => adapter.set("subdomain offset", -1)).toThrow(TypeError);
+    // Like Express, the offset goes to Array#slice as given.
+    (app as unknown as NodeHttpAdapter).set("subdomain offset", "1");
     await app.init();
 
     const client = await adapter.fetch(
@@ -334,15 +334,42 @@ describe("native Nest adapters", () => {
       hostname: "a.b.example.com",
       subdomains: ["example", "b", "a"],
     });
+    // Like Express, host and hostname both come from the Host header.
+    const hosted = await adapter.fetch(
+      new Request("http://localhost/api/client", { headers: { host: "x.y.example.org" } }),
+    );
+    expect(await hosted.json()).toMatchObject({
+      host: "x.y.example.org",
+      hostname: "x.y.example.org",
+      subdomains: ["example", "y", "x"],
+    });
     const events1 = await adapter.fetch(new Request("http://localhost/api/events"));
     await events1.text();
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(events).toEqual([
       "/api/client finish",
       "/api/client close",
+      "/api/client finish",
+      "/api/client close",
       "/api/events finish",
       "/api/events close",
     ]);
+
+    // A small streamed file the client abandons unread emits only close.
+    events.length = 0;
+    const abandoned = await adapter.fetch(new Request("http://localhost/api/file"));
+    await abandoned.body!.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(events).toEqual(["/api/file close"]);
+
+    // The rest of Node's EventEmitter API is there for event-based middleware.
+    const response = new NativeResponse("GET");
+    const listener = () => {};
+    response.addListener("finish", listener).prependListener("finish", listener);
+    expect(response.listenerCount("finish")).toBe(2);
+    expect(response.emit("finish")).toBe(true);
+    response.removeAllListeners("finish");
+    expect(response.listeners("finish")).toEqual([]);
   });
   it("trusts proxies like Express's trust proxy setting", async () => {
     // Validated up front instead of failing per request.

@@ -19,6 +19,7 @@ import type {
 } from "@nestjs/common/interfaces/external/cors-options.interface.js";
 import { NativeRouter, type Fail, type Handler, type Next } from "./router.js";
 import {
+  DEFAULT_SUBDOMAIN_OFFSET,
   createRequest,
   defaultBodyKind,
   isParsedMethod,
@@ -40,7 +41,14 @@ export {
   FilesInterceptor,
   type UploadedFileData,
 } from "./uploads.js";
-export { NullObject, parseQuery, subdomainsOf } from "./request.js";
+export {
+  ClientRequest,
+  DEFAULT_SUBDOMAIN_OFFSET,
+  NullObject,
+  parseQuery,
+  subdomainsOf,
+  type ClientConnection,
+} from "./request.js";
 export type { StaticAssetsOptions } from "./static.js";
 export {
   hostnameOf,
@@ -98,7 +106,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   /** Compiled `trust proxy` setting; undefined trusts no proxy. */
   protected trust: TrustFunction | undefined;
   /** Express's `subdomain offset` setting, used by `req.subdomains`. */
-  protected subdomainOffset = 2;
+  protected subdomainOffset: unknown = DEFAULT_SUBDOMAIN_OFFSET;
 
   constructor(protected readonly adapterOptions: NativeAdapterOptions = {}) {
     super();
@@ -161,10 +169,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     if (setting === "trust proxy") {
       this.trust = compileTrust(value as TrustProxy);
     } else if (setting === "subdomain offset") {
-      if (!Number.isSafeInteger(value) || (value as number) < 0) {
-        throw new TypeError(`subdomain offset must be a nonnegative integer: ${String(value)}`);
-      }
-      this.subdomainOffset = value as number;
+      // Stored as given: like Express, `req.subdomains` passes it to Array#slice.
+      this.subdomainOffset = value;
     } else if (setting !== "x-powered-by") {
       new Logger(NativeHttpAdapter.name).warn(
         `app.set("${setting}") has no effect on the native adapters and is ignored.`,

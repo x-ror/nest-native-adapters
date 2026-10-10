@@ -357,9 +357,10 @@ log a warning that they are ignored.
 The Node adapter exposes its real HTTP server through `getHttpServer()`.
 The Bun adapter exposes a small event/address facade for Nest's listen lifecycle,
 with the actual Bun server at `.native`; it is not a Node server. On Bun,
-`res.on("finish")` fires once the body has been handed to Bun (or fully read,
-for streams) and `close` follows; a stream the client abandons emits only
-`close`.
+`res.on("finish")` fires once the client has read the last chunk of a
+streamed body, or once a buffered or file body has been handed to Bun (Bun
+reports no later completion), and `close` follows; a stream the client
+abandons emits only `close`. The full EventEmitter listener API is available.
 
 ### WebSockets
 
