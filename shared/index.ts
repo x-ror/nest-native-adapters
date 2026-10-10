@@ -19,6 +19,7 @@ import type {
 } from "@nestjs/common/interfaces/external/cors-options.interface.js";
 import { NativeRouter, type Fail, type Handler, type Next } from "./router.js";
 import {
+  DEFAULT_SUBDOMAIN_OFFSET,
   createRequest,
   defaultBodyKind,
   isParsedMethod,
@@ -40,7 +41,14 @@ export {
   FilesInterceptor,
   type UploadedFileData,
 } from "./uploads.js";
-export { NullObject, parseQuery } from "./request.js";
+export {
+  ClientRequest,
+  DEFAULT_SUBDOMAIN_OFFSET,
+  NullObject,
+  parseQuery,
+  subdomainsOf,
+  type ClientConnection,
+} from "./request.js";
 export type { StaticAssetsOptions } from "./static.js";
 export {
   hostnameOf,
@@ -97,6 +105,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   private return503OnClosing = false;
   /** Compiled `trust proxy` setting; undefined trusts no proxy. */
   protected trust: TrustFunction | undefined;
+  /** Express's `subdomain offset` setting, used by `req.subdomains`. */
+  protected subdomainOffset: unknown = DEFAULT_SUBDOMAIN_OFFSET;
 
   constructor(protected readonly adapterOptions: NativeAdapterOptions = {}) {
     super();
@@ -150,7 +160,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   /**
    * Express's `app.set()`, so `app.set("trust proxy", 1)` keeps working after a
    * migration. Like Express, any setting name is accepted. Only `trust proxy`
-   * has an effect; `x-powered-by` is silently accepted (these adapters never
+   * and `subdomain offset` have an effect; `x-powered-by` is silently accepted (these adapters never
    * send that header), and any other setting logs a warning that it is
    * ignored. A call through Nest's app runs in its exception zone, so an
    * invalid `trust proxy` value fails startup, as it does on Express.
@@ -158,6 +168,9 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   set(setting: string, value: unknown): this {
     if (setting === "trust proxy") {
       this.trust = compileTrust(value as TrustProxy);
+    } else if (setting === "subdomain offset") {
+      // Stored as given: like Express, `req.subdomains` passes it to Array#slice.
+      this.subdomainOffset = value;
     } else if (setting !== "x-powered-by") {
       new Logger(NativeHttpAdapter.name).warn(
         `app.set("${setting}") has no effect on the native adapters and is ignored.`,
@@ -181,8 +194,15 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     }
     return this;
   }
-  readonly fetch = (raw: Request, info?: { ip?: string }): Promise<Response> => {
-    const request = createRequest(raw, info?.ip, this.trust);
+  /**
+   * Serves one fetch `Request`. `info.ip` is the client's socket address and
+   * `info.protocol` the server's own scheme, used when the Request URL has none.
+   */
+  readonly fetch = (
+    raw: Request,
+    info?: { ip?: string; protocol?: "http" | "https" },
+  ): Promise<Response> => {
+    const request = createRequest(raw, info?.ip, this.trust, this.subdomainOffset, info?.protocol);
     const response = new NativeResponse(request.method, this, request);
     this.dispatch(request, response);
     return response.done;

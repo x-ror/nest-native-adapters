@@ -35,8 +35,8 @@ Fastify a benchmark-only one.
 | Header, media-type and custom versioning             | Supported    | Supported     | Same per-handler matching as Nest's Express adapter          |
 | Nest `@Sse()`                                        | Supported    | Supported     | Observable `MessageEvent` stream                             |
 | Streamed responses with `res.write()`                | Supported    | Supported     | Chunked; headers are sent on the first write                 |
-| Response events (`res.on("finish")`)                 | Supported    | Not supported | Forwarded to Node's `ServerResponse`                         |
-| TLS / HTTPS                                          | Supported    | Untested      | Nest `httpsOptions`; Bun reads key, cert, ca and passphrase  |
+| Response events (`res.on("finish")`)                 | Supported    | Supported     | `finish` and `close`; Node forwards to `ServerResponse`      |
+| TLS / HTTPS                                          | Supported    | Supported     | Nest `httpsOptions`; Bun reads key, cert, ca and passphrase  |
 | WebSocket gateways                                   | Supported    | Supported     | Node: Nest's `WsAdapter`; Bun: `BunWsAdapter`                |
 | Socket.IO gateways                                   | Supported    | Not supported | Automatic on Node; under Bun use the Node adapter            |
 | File upload interceptors                             | Supported    | Supported     | `FileInterceptor` and friends; memory storage only           |
@@ -203,9 +203,11 @@ transport-specific code before replacing the platform adapter:
   first access on Node, so only touch it when you need it), not an
   Express `Request`, Fastify request, or Node `IncomingMessage`.
 - Treat `@Res()` as `NativeResponse`. `res.status(...).json(...)` and
-  `res.setHeader(...)`, and `res.write(...)` are available, and on Node
-  `res.on(...)` forwards to the underlying response. Other Express/Fastify
-  APIs and plugin-specific methods are not.
+  `res.setHeader(...)`, `res.write(...)` and `res.on("finish" | "close")`
+  are available; on Node `res.on(...)` forwards to the underlying response.
+  `req.ip`, `req.ips`, `req.protocol`, `req.secure`, `req.host`,
+  `req.hostname` and `req.subdomains` behave as on Express. Other
+  Express/Fastify APIs and plugin-specific methods are not.
 - Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
   `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
   adapter package instead of `@nestjs/platform-express`. Files have Multer's
@@ -249,7 +251,7 @@ export class EventsController {
 ### TLS behind a reverse proxy
 
 The adapters serve HTTPS directly when Nest `httpsOptions` are given (verified
-on Node; untested on Bun). Otherwise terminate TLS at a reverse proxy such as Nginx,
+on Node and Bun; Bun reads only `key`, `cert`, `ca` and `passphrase`). Otherwise terminate TLS at a reverse proxy such as Nginx,
 and keep the application listener reachable only from that proxy (for example,
 bind to `127.0.0.1` or a private container network). Configure the proxy's
 request-body limit to match the adapter's `bodyLimit`; the default parsed-body
@@ -354,8 +356,11 @@ log a warning that they are ignored.
 
 The Node adapter exposes its real HTTP server through `getHttpServer()`.
 The Bun adapter exposes a small event/address facade for Nest's listen lifecycle,
-with the actual Bun server at `.native`; it is not a Node server. Response
-events are only available on Node.
+with the actual Bun server at `.native`; it is not a Node server. On Bun,
+`res.on("finish")` fires once the client has read the last chunk of a
+streamed body, or once a buffered or file body has been handed to Bun (Bun
+reports no later completion), and `close` follows; a stream the client
+abandons emits only `close`. The full EventEmitter listener API is available.
 
 ### WebSockets
 

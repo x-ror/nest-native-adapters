@@ -27,6 +27,15 @@ First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.
   ranges, `maxAge`, dotfiles, redirects and streamed files.
 - Graceful `close()`, `shutdownTimeout`, `forceCloseConnections` and
   `return503OnClosing`.
+- `req.secure`, `req.host` and `req.subdomains` as on Express, with the
+  `subdomain offset` setting.
+- Response events (`finish`, `close`) and native HTTPS on Bun too.
+
+### Fixed (from pre-release builds)
+
+- On Bun, a request with a missing or invalid Host header (for which Bun
+  passes a bare `/path` URL) was routed with its first path segment cut off,
+  so `/x/admin` reached `/admin`. Such requests now route by their own path.
 
 ### Changed (from pre-release builds)
 

@@ -270,7 +270,10 @@ export class BunHttpAdapter extends NativeHttpAdapter<BunServerFacade> {
               if (result !== null) return result;
             }
           }
-          return this.fetch(request, { ip: server.requestIP(request)?.address });
+          return this.fetch(request, {
+            ip: server.requestIP(request)?.address,
+            protocol: this.tls ? "https" : "http",
+          });
         },
         websocket: {
           open: (socket) => {

@@ -195,6 +195,10 @@ class TestController {
       ips: req.ips,
       protocol: req.protocol,
       hostname: req.hostname,
+      secure: req.secure,
+      // Each server listens on its own port; compare the rest of the host.
+      host: req.host?.replace(/:\d+$/, ":<port>"),
+      subdomains: req.subdomains,
     };
   }
   @Get("cookies/read") readCookies(

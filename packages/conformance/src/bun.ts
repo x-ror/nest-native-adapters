@@ -5,6 +5,11 @@ import { BunHttpAdapter, BunWsAdapter } from "nestjs-adapter-bun";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { io as connect } from "socket.io-client";
 import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { connect as connectSocket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { compareAdapters, startFixture } from "./compare.js";
 import { checkLifecycle } from "./lifecycle.js";
@@ -16,6 +21,89 @@ await compareAdapters(
 );
 
 await checkLifecycle("native-bun", (options) => new BunHttpAdapter(options));
+
+// Bun hands over a bare "/path" Request URL when the Host header is missing or
+// invalid; the path must still route as sent (it used to lose its first segment).
+{
+  const app = await NestFactory.create(FixtureModule, new BunHttpAdapter(), { logger: false });
+  await app.listen(0, "127.0.0.1");
+  const port = Number(new URL(await app.getUrl()).port);
+  const send = (request: string) =>
+    new Promise<string>((resolve) => {
+      const socket = connectSocket(port, "127.0.0.1", () => socket.write(request));
+      let data = "";
+      socket.on("data", (chunk) => (data += chunk));
+      socket.on("close", () => resolve(data));
+      setTimeout(() => socket.destroy(), 1000);
+    });
+  try {
+    // HTTP/1.1 needs a Host header (Bun answers 400 without one); HTTP/1.0 does not.
+    for (const [version, host] of [
+      ["1.1", "Host: a@b.com\r\n"],
+      ["1.1", "Host: evil.com/x?\r\n"],
+      ["1.0", ""],
+    ]) {
+      const reply = await send(
+        `GET /api/items/42?tag=x HTTP/${version}\r\n${host}Connection: close\r\n\r\n`,
+      );
+      assert.match(reply, /^HTTP\/1\.1 200/, `bare request target with ${JSON.stringify(host)}`);
+      assert.ok(reply.includes('{"id":42,"query":{"tag":"x"}}'), reply);
+    }
+  } finally {
+    await app.close();
+  }
+  console.log(
+    "native-bun: requests with a missing or invalid Host header route by their own path.",
+  );
+}
+
+// Native HTTPS on Bun.serve with Nest's httpsOptions (key and cert). The
+// certificate comes from the openssl CLI; without it the check is skipped.
+if (spawnSync("openssl", ["version"]).error) {
+  console.log("native-bun: native HTTPS check skipped (openssl not installed).");
+} else {
+  const dir = mkdtempSync(join(tmpdir(), "native-bun-tls-"));
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+      ].concat(["-keyout", join(dir, "key.pem"), "-out", join(dir, "cert.pem")]),
+      { stdio: "ignore" },
+    );
+    const secure = await NestFactory.create(FixtureModule, new BunHttpAdapter(), {
+      logger: false,
+      httpsOptions: {
+        key: readFileSync(join(dir, "key.pem")),
+        cert: readFileSync(join(dir, "cert.pem")),
+      },
+    });
+    try {
+      await secure.listen(0, "127.0.0.1");
+      const url = (await secure.getUrl()).replace(/^http:/, "https:");
+      const insecure = { tls: { rejectUnauthorized: false } } as RequestInit;
+      const response = await fetch(`${url}/api/client`, insecure);
+      assert.equal(response.status, 200);
+      const client = (await response.json()) as { protocol: string; secure: boolean };
+      assert.equal(client.protocol, "https");
+      assert.equal(client.secure, true);
+      await assert.rejects(fetch(`${url}/api`), "self-signed certificate is rejected by default");
+    } finally {
+      await secure.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  console.log("native-bun: native HTTPS with httpsOptions passed.");
+}
 
 const adapter = new BunHttpAdapter();
 const app = await NestFactory.create(FixtureModule, adapter, {

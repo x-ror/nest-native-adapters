@@ -306,6 +306,89 @@ describe("native Nest adapters", () => {
     }
     expect(failures).toEqual([]);
   });
+  it("emits response events and reports secure, host and subdomains on the fetch path", async () => {
+    const adapter = new NodeHttpAdapter();
+    const app = await NestFactory.create(FixtureModule, adapter, { logger: false });
+    apps.push(app);
+    const events: string[] = [];
+    app.use((req: NativeRequest, res: NativeResponse, next: () => void) => {
+      const record = (name: string) => () => events.push(`${req.path} ${name}`);
+      res.on("finish", record("finish")).once("close", record("close"));
+      const removed = record("removed");
+      res.on("finish", removed).off("finish", removed);
+      next();
+    });
+    // Like Express, the offset goes to Array#slice as given.
+    (app as unknown as NodeHttpAdapter).set("subdomain offset", "1");
+    await app.init();
+
+    const client = await adapter.fetch(
+      new Request("https://a.b.example.com:8443/api/client", {
+        headers: { host: "a.b.example.com:8443" },
+      }),
+    );
+    expect(await client.json()).toMatchObject({
+      protocol: "https",
+      secure: true,
+      host: "a.b.example.com:<port>",
+      hostname: "a.b.example.com",
+      subdomains: ["example", "b", "a"],
+    });
+    // Like Express, host and hostname both come from the Host header.
+    const hosted = await adapter.fetch(
+      new Request("http://localhost/api/client", { headers: { host: "x.y.example.org" } }),
+    );
+    expect(await hosted.json()).toMatchObject({
+      host: "x.y.example.org",
+      hostname: "x.y.example.org",
+      subdomains: ["example", "y", "x"],
+    });
+    const events1 = await adapter.fetch(new Request("http://localhost/api/events"));
+    await events1.text();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(events).toEqual([
+      "/api/client finish",
+      "/api/client close",
+      "/api/client finish",
+      "/api/client close",
+      "/api/events finish",
+      "/api/events close",
+    ]);
+
+    // A small streamed file the client abandons unread emits only close.
+    events.length = 0;
+    const abandoned = await adapter.fetch(new Request("http://localhost/api/file"));
+    await abandoned.body!.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(events).toEqual(["/api/file close"]);
+
+    // The rest of Node's EventEmitter API is there for event-based middleware.
+    const response = new NativeResponse("GET");
+    const listener = () => {};
+    response.addListener("finish", listener).prependListener("finish", listener);
+    expect(response.listenerCount("finish")).toBe(2);
+    expect(response.emit("finish")).toBe(true);
+    response.removeAllListeners("finish");
+    expect(response.listeners("finish")).toEqual([]);
+  });
+  it("routes bare request targets by their own path on the fetch path", async () => {
+    const adapter = new NodeHttpAdapter();
+    const app = await NestFactory.create(FixtureModule, adapter, { logger: false });
+    apps.push(app);
+    await app.init();
+    // What Bun passes when the Host header is missing or invalid: no scheme or host.
+    const bare = (url: string) =>
+      ({ url, method: "GET", headers: new Headers(), body: null }) as unknown as Request;
+    const item = await adapter.fetch(bare("/api/items/42?next=http://x/y"));
+    expect(item.status).toBe(200);
+    expect(await item.json()).toEqual({ id: 42, query: { next: "http://x/y" } });
+    const client = await adapter.fetch(bare("/api/client"), { protocol: "https" });
+    expect(await client.json()).toMatchObject({
+      protocol: "https",
+      secure: true,
+      hostname: "localhost",
+    });
+  });
   it("trusts proxies like Express's trust proxy setting", async () => {
     // Validated up front instead of failing per request.
     // Validated up front, with proxy-addr's rules: /0 would trust every address.
@@ -360,6 +443,9 @@ describe("native Nest adapters", () => {
       ips: ["203.0.113.7"],
       protocol: "https",
       hostname: "app.example",
+      secure: true,
+      host: "app.example:<port>",
+      subdomains: [],
     });
     const direct = await fetchAdapter.fetch(
       new Request("http://localhost/api/client", { headers }),
@@ -371,6 +457,9 @@ describe("native Nest adapters", () => {
       ips: [],
       protocol: "http",
       hostname: "localhost",
+      secure: false,
+      host: "localhost",
+      subdomains: [],
     });
 
     // A trust function that throws fails the request through Nest (500), not fetch() itself.
