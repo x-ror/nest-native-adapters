@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { BadRequestException, PayloadTooLargeException } from "@nestjs/common";
 import { hostnameOf, resolveProxy, type ProxyView, type TrustFunction } from "./proxy.js";
 
@@ -18,6 +19,15 @@ export interface NativeRequest {
   ip?: string;
   /** Trusted `X-Forwarded-For` chain, farthest first, as Express's `req.ips`; empty without `trustProxy`. */
   ips: string[];
+  /** Express's `req.secure`: `protocol === "https"`. */
+  readonly secure: boolean;
+  /** Express's `req.host`: the Host header (or trusted `X-Forwarded-Host`), port included. */
+  readonly host: string | undefined;
+  /**
+   * Express's `req.subdomains`: the hostname's labels, nearest first, minus the
+   * `subdomain offset` setting (default 2). Empty for IP addresses.
+   */
+  readonly subdomains: string[];
   headers: Record<string, string>;
   params: Record<string, string | string[]>;
   query: Record<string, string | string[]>;
@@ -164,31 +174,74 @@ function headersObject(headers: Headers): Record<string, string> {
   return native.toJSON ? native.toJSON() : Object.fromEntries(headers);
 }
 
-export function createRequest(raw: Request, ip?: string, trust?: TrustFunction): NativeRequest {
-  // `Request.url` is already an absolute, normalized URL; slicing avoids a reparse.
-  const full = raw.url;
-  const hostStart = full.indexOf("://") + 3;
-  const pathStart = full.indexOf("/", hostStart);
-  const url = pathStart === -1 ? "/" : full.slice(pathStart);
-  const queryStart = url.indexOf("?");
-  const headers = headersObject(raw.headers);
-  const request: NativeRequest = {
-    raw,
-    ip,
-    ips: [],
-    method: raw.method,
-    url,
-    originalUrl: url,
-    path: queryStart === -1 ? url : url.slice(0, queryStart),
-    hostname: full
+/** Express's `req.subdomains` for a hostname and a `subdomain offset`. */
+export function subdomainsOf(hostname: string | undefined, offset: number): string[] {
+  if (!hostname) return [];
+  return (isIP(hostname) ? [hostname] : hostname.split(".").reverse()).slice(offset);
+}
+
+/** Request facade over a fetch `Request`; URL parts are sliced without a reparse. */
+class FetchRequest implements NativeRequest {
+  ip: string | undefined;
+  ips: string[] = [];
+  readonly method: string;
+  url: string;
+  originalUrl: string;
+  path: string;
+  hostname: string;
+  protocol: string;
+  readonly headers: Record<string, string>;
+  params = new NullObject<string | string[]>();
+  query: Record<string, string | string[]>;
+  body?: unknown;
+  rawBody?: Buffer;
+  readonly #urlHost: string;
+  readonly #subdomainOffset: number;
+
+  constructor(
+    readonly raw: Request,
+    ip: string | undefined,
+    subdomainOffset: number,
+  ) {
+    // `Request.url` is already an absolute, normalized URL; slicing avoids a reparse.
+    const full = raw.url;
+    const hostStart = full.indexOf("://") + 3;
+    const pathStart = full.indexOf("/", hostStart);
+    const url = pathStart === -1 ? "/" : full.slice(pathStart);
+    const queryStart = url.indexOf("?");
+    this.ip = ip;
+    this.method = raw.method;
+    this.url = url;
+    this.originalUrl = url;
+    this.path = queryStart === -1 ? url : url.slice(0, queryStart);
+    this.#urlHost = full
       .slice(hostStart, pathStart === -1 ? undefined : pathStart)
-      .replace(/^.*@|:\d*$/g, ""),
-    protocol: full.slice(0, hostStart - 3),
-    headers,
-    params: new NullObject(),
-    query: queryStart === -1 ? new NullObject() : parseQuery(url.slice(queryStart + 1)),
-  };
-  if (trust) applyTrustedProxy(request, headers, ip, trust);
+      .replace(/^.*@/, "");
+    this.hostname = this.#urlHost.replace(/:\d*$/, "");
+    this.protocol = full.slice(0, hostStart - 3);
+    this.headers = headersObject(raw.headers);
+    this.query = queryStart === -1 ? new NullObject() : parseQuery(url.slice(queryStart + 1));
+    this.#subdomainOffset = subdomainOffset;
+  }
+  get secure(): boolean {
+    return this.protocol === "https";
+  }
+  get host(): string | undefined {
+    return this.headers.host || this.#urlHost || undefined;
+  }
+  get subdomains(): string[] {
+    return subdomainsOf(this.hostname, this.#subdomainOffset);
+  }
+}
+
+export function createRequest(
+  raw: Request,
+  ip?: string,
+  trust?: TrustFunction,
+  subdomainOffset = 2,
+): NativeRequest {
+  const request = new FetchRequest(raw, ip, subdomainOffset);
+  if (trust) applyTrustedProxy(request, trust);
   return request;
 }
 
@@ -198,14 +251,8 @@ export function createRequest(raw: Request, ip?: string, trust?: TrustFunction):
  * read, so the trust function runs inside the handler's error handling and
  * only for requests that use them.
  */
-function applyTrustedProxy(
-  request: NativeRequest,
-  headers: Record<string, string>,
-  socketAddress: string | undefined,
-  trust: TrustFunction,
-): void {
-  const host = request.hostname;
-  const protocol = request.protocol;
+function applyTrustedProxy(request: FetchRequest, trust: TrustFunction): void {
+  const { headers, ip: socketAddress, host, protocol } = request;
   let view: ProxyView | undefined;
   const resolve = (): ProxyView =>
     (view ??= resolveProxy(
@@ -228,8 +275,8 @@ function applyTrustedProxy(
     ip: lazy(() => resolve().ip),
     ips: lazy(() => resolve().ips),
     protocol: lazy(() => resolve().protocol),
-    // The URL host has had its port removed already; hostnameOf is a no-op on it.
     hostname: lazy(() => hostnameOf(resolve().host)),
+    host: lazy(() => resolve().host),
   });
 }
 

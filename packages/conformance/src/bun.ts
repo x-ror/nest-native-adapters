@@ -5,6 +5,10 @@ import { BunHttpAdapter, BunWsAdapter } from "nestjs-adapter-bun";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { io as connect } from "socket.io-client";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { NestFactory } from "@nestjs/core";
 import { compareAdapters, startFixture } from "./compare.js";
 import { checkLifecycle } from "./lifecycle.js";
@@ -16,6 +20,51 @@ await compareAdapters(
 );
 
 await checkLifecycle("native-bun", (options) => new BunHttpAdapter(options));
+
+// Native HTTPS on Bun.serve with Nest's httpsOptions (key and cert).
+{
+  const dir = mkdtempSync(join(tmpdir(), "native-bun-tls-"));
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+      ].concat(["-keyout", join(dir, "key.pem"), "-out", join(dir, "cert.pem")]),
+      { stdio: "ignore" },
+    );
+    const secure = await NestFactory.create(FixtureModule, new BunHttpAdapter(), {
+      logger: false,
+      httpsOptions: {
+        key: readFileSync(join(dir, "key.pem")),
+        cert: readFileSync(join(dir, "cert.pem")),
+      },
+    });
+    try {
+      await secure.listen(0, "127.0.0.1");
+      const url = (await secure.getUrl()).replace(/^http:/, "https:");
+      const insecure = { tls: { rejectUnauthorized: false } } as RequestInit;
+      const response = await fetch(`${url}/api/client`, insecure);
+      assert.equal(response.status, 200);
+      const client = (await response.json()) as { protocol: string; secure: boolean };
+      assert.equal(client.protocol, "https");
+      assert.equal(client.secure, true);
+      await assert.rejects(fetch(`${url}/api`), "self-signed certificate is rejected by default");
+    } finally {
+      await secure.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  console.log("native-bun: native HTTPS with httpsOptions passed.");
+}
 
 const adapter = new BunHttpAdapter();
 const app = await NestFactory.create(FixtureModule, adapter, {

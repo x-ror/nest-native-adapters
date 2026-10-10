@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { STATUS_CODES } from "node:http";
@@ -87,6 +88,7 @@ export class NativeResponse {
   // never show up when a response is logged, inspected or serialized.
   readonly #cookies: CookieWriter;
   readonly #request: NativeRequest | undefined;
+  #events: EventEmitter | undefined;
 
   constructor(
     protected readonly method: string,
@@ -285,11 +287,26 @@ export class NativeResponse {
     if (!this.streaming) this.finish(this.raw);
     return this.raw.write(chunk);
   }
-  on(_event: string, _listener: (...args: any[]) => void): this {
-    throw new Error("Response events are only available on the Node adapter.");
+  /**
+   * Response events on the fetch transport (Bun): `finish` once the body has
+   * been handed to the runtime (buffered bodies, files) or fully read
+   * (streams), then `close`; a stream the client abandons emits only `close`.
+   * The Node adapter forwards these to its `ServerResponse` instead.
+   */
+  on(event: string, listener: (...args: any[]) => void): this {
+    (this.#events ??= new EventEmitter()).on(event, listener);
+    return this;
   }
   once(event: string, listener: (...args: any[]) => void): this {
-    return this.on(event, listener);
+    (this.#events ??= new EventEmitter()).once(event, listener);
+    return this;
+  }
+  off(event: string, listener: (...args: any[]) => void): this {
+    this.#events?.off(event, listener);
+    return this;
+  }
+  removeListener(event: string, listener: (...args: any[]) => void): this {
+    return this.off(event, listener);
   }
 
   /** Sends the response; the default produces a fetch `Response` for `done`. */
@@ -305,6 +322,15 @@ export class NativeResponse {
       { status: this.statusCode, headers },
     );
     this.complete?.(this.response);
+    if (body instanceof Readable) {
+      body.once("end", () => this.#events?.emit("finish"));
+      body.once("close", () => this.#events?.emit("close"));
+    } else {
+      queueMicrotask(() => {
+        this.#events?.emit("finish");
+        this.#events?.emit("close");
+      });
+    }
   }
 
   private finish(body: ResponseBody): this {

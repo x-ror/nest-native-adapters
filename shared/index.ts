@@ -40,7 +40,7 @@ export {
   FilesInterceptor,
   type UploadedFileData,
 } from "./uploads.js";
-export { NullObject, parseQuery } from "./request.js";
+export { NullObject, parseQuery, subdomainsOf } from "./request.js";
 export type { StaticAssetsOptions } from "./static.js";
 export {
   hostnameOf,
@@ -97,6 +97,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   private return503OnClosing = false;
   /** Compiled `trust proxy` setting; undefined trusts no proxy. */
   protected trust: TrustFunction | undefined;
+  /** Express's `subdomain offset` setting, used by `req.subdomains`. */
+  protected subdomainOffset = 2;
 
   constructor(protected readonly adapterOptions: NativeAdapterOptions = {}) {
     super();
@@ -150,7 +152,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   /**
    * Express's `app.set()`, so `app.set("trust proxy", 1)` keeps working after a
    * migration. Like Express, any setting name is accepted. Only `trust proxy`
-   * has an effect; `x-powered-by` is silently accepted (these adapters never
+   * and `subdomain offset` have an effect; `x-powered-by` is silently accepted (these adapters never
    * send that header), and any other setting logs a warning that it is
    * ignored. A call through Nest's app runs in its exception zone, so an
    * invalid `trust proxy` value fails startup, as it does on Express.
@@ -158,6 +160,11 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   set(setting: string, value: unknown): this {
     if (setting === "trust proxy") {
       this.trust = compileTrust(value as TrustProxy);
+    } else if (setting === "subdomain offset") {
+      if (!Number.isSafeInteger(value) || (value as number) < 0) {
+        throw new TypeError(`subdomain offset must be a nonnegative integer: ${String(value)}`);
+      }
+      this.subdomainOffset = value as number;
     } else if (setting !== "x-powered-by") {
       new Logger(NativeHttpAdapter.name).warn(
         `app.set("${setting}") has no effect on the native adapters and is ignored.`,
@@ -182,7 +189,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     return this;
   }
   readonly fetch = (raw: Request, info?: { ip?: string }): Promise<Response> => {
-    const request = createRequest(raw, info?.ip, this.trust);
+    const request = createRequest(raw, info?.ip, this.trust, this.subdomainOffset);
     const response = new NativeResponse(request.method, this, request);
     this.dispatch(request, response);
     return response.done;

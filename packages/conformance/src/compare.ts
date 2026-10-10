@@ -215,6 +215,10 @@ const trustCases: Case[] = [
   ["/api/client", { headers: { "x-forwarded-host": "app.example:8443" } }],
   ["/api/client", { headers: { "x-forwarded-host": "a.example, b.example" } }],
   ["/api/client", { headers: { "x-forwarded-host": "[2001:db8::1]:8443" } }],
+  [
+    "/api/client",
+    { headers: { "x-forwarded-host": "a.b.app.example", "x-forwarded-proto": "https" } },
+  ],
 ];
 
 const trustConfigurations: [string, unknown][] = [

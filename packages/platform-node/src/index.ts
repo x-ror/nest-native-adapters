@@ -9,6 +9,7 @@ import {
   NullObject,
   hostnameOf,
   resolveProxy,
+  subdomainsOf,
   parseQuery,
   type CookieWriter,
   type NativeRequest,
@@ -56,6 +57,7 @@ class NodeRequest implements NativeRequest {
     readonly incoming: IncomingMessage,
     private readonly outgoing: ServerResponse,
     private readonly trust: TrustFunction | undefined,
+    private readonly subdomainOffset: number,
   ) {
     this.method = incoming.method ?? "GET";
     let url = incoming.url ?? "/";
@@ -84,6 +86,15 @@ class NodeRequest implements NativeRequest {
   }
   get ip(): string | undefined {
     return this.trust ? this.proxy().ip : this.incoming.socket.remoteAddress;
+  }
+  get secure(): boolean {
+    return this.protocol === "https";
+  }
+  get host(): string | undefined {
+    return (this.trust ? this.proxy().host : this.incoming.headers.host) || undefined;
+  }
+  get subdomains(): string[] {
+    return subdomainsOf(this.hostname, this.subdomainOffset);
   }
   get ips(): string[] {
     return this.trust ? this.proxy().ips : [];
@@ -168,6 +179,10 @@ class NodeResponse extends NativeResponse {
     this.outgoing.once(event, listener);
     return this;
   }
+  override off(event: string, listener: (...args: any[]) => void): this {
+    this.outgoing.off(event, listener);
+    return this;
+  }
   protected override commit(body: ResponseBody): void {
     const outgoing = this.outgoing;
     if (outgoing.destroyed) {
@@ -196,7 +211,7 @@ export class NodeHttpAdapter extends NativeHttpAdapter<Server> {
     this.validateApplicationOptions(options);
     this.forceCloseConnections = options.forceCloseConnections ?? false;
     const listener = (incoming: IncomingMessage, outgoing: ServerResponse): void => {
-      const request = new NodeRequest(incoming, outgoing, this.trust);
+      const request = new NodeRequest(incoming, outgoing, this.trust, this.subdomainOffset);
       this.dispatch(request, new NodeResponse(request.method, outgoing, this, request));
     };
     this.httpServer = options.httpsOptions

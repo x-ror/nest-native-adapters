@@ -38,6 +38,10 @@ class LifecycleController {
 @Module({ controllers: [LifecycleController] })
 class LifecycleModule {}
 
+type NativeEvents = {
+  on(event: string, listener: () => void): unknown;
+  once(event: string, listener: () => void): unknown;
+};
 type Options = { shutdownTimeout?: number; forceCloseConnections?: boolean };
 
 async function start(createAdapter: (options: Options) => AbstractHttpAdapter, options: Options) {
@@ -156,7 +160,36 @@ export async function checkLifecycle(
       await app.close();
     }
   }
+  // Response events: finish then close for a normal response, close for an aborted stream.
+  {
+    const events: string[] = [];
+    const app = await NestFactory.create(LifecycleModule, createAdapter({}), { logger: false });
+    app.use((req: { url: string }, res: NativeEvents, next: () => void) => {
+      res.on("finish", () => events.push(`${req.url} finish`));
+      res.once("close", () => events.push(`${req.url} close`));
+      next();
+    });
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    try {
+      const response = await fetch(`${base}/lifecycle/slow`);
+      await response.arrayBuffer();
+      await waitFor(() => events.length >= 2, `${label}: response events`);
+      assert.deepEqual(events, ["/lifecycle/slow finish", "/lifecycle/slow close"]);
+      events.length = 0;
+      const controller = new AbortController();
+      const stream = await fetch(`${base}/lifecycle/stream`, { signal: controller.signal });
+      const reader = stream.body!.getReader();
+      await reader.read();
+      controller.abort();
+      await reader.cancel().catch(() => {});
+      await waitFor(() => events.includes("/lifecycle/stream close"), `${label}: close on abort`);
+      assert.ok(!events.includes("/lifecycle/stream finish"), `${label}: aborted stream finished`);
+    } finally {
+      await app.close();
+    }
+  }
   console.log(
-    `${label}: graceful close, shutdownTimeout, forceCloseConnections and SSE disconnect passed.`,
+    `${label}: graceful close, shutdownTimeout, forceCloseConnections, SSE disconnect and response events passed.`,
   );
 }

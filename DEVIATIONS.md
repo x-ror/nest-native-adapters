@@ -10,14 +10,15 @@ history, not active workspace packages.
 - Bun uses `Bun.serve`, not `node:http` running under Bun. Its native server is
   wrapped only for Nest's event/address listen contract.
 - Requests and responses use the supported fields/APIs documented in README.
-  Express plugins, Multer options beyond memory storage, WebSocket namespaces, and response
-  events on Bun remain outside the implementation. Nest `@Sse()` Observable
+  Express plugins, Multer options beyond memory storage and WebSocket
+  namespaces remain outside the implementation. Nest `@Sse()` Observable
   routes, `res.write()` streaming, opt-in text/raw body parsers, all Nest
-  versioning types, and native HTTPS via `httpsOptions` (untested on Bun) are
-  supported. Forwarded headers are interpreted only through Express's
-  `trust proxy` semantics (`trustProxy` option or `app.set("trust proxy")`),
-  off by default; Express's `req.secure`, `req.host` and `req.subdomains` are
-  not provided. Multipart files are
+  versioning types, native HTTPS via `httpsOptions` and response events are
+  supported on both runtimes; on Bun, `finish` means the body was handed to
+  Bun rather than flushed to the socket. Forwarded headers are interpreted
+  only through Express's `trust proxy` semantics (`trustProxy` option or
+  `app.set("trust proxy")`), off by default. Of Express's settings, only
+  `trust proxy` and `subdomain offset` have an effect. Multipart files are
   native `File` values in `@Body()`. Static files follow `express.static()`
   (serve-static and send), except that content types come from a built-in
   table of common web types, and on Bun a full response to a request with a
