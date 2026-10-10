@@ -371,6 +371,24 @@ describe("native Nest adapters", () => {
     response.removeAllListeners("finish");
     expect(response.listeners("finish")).toEqual([]);
   });
+  it("routes bare request targets by their own path on the fetch path", async () => {
+    const adapter = new NodeHttpAdapter();
+    const app = await NestFactory.create(FixtureModule, adapter, { logger: false });
+    apps.push(app);
+    await app.init();
+    // What Bun passes when the Host header is missing or invalid: no scheme or host.
+    const bare = (url: string) =>
+      ({ url, method: "GET", headers: new Headers(), body: null }) as unknown as Request;
+    const item = await adapter.fetch(bare("/api/items/42?next=http://x/y"));
+    expect(item.status).toBe(200);
+    expect(await item.json()).toEqual({ id: 42, query: { next: "http://x/y" } });
+    const client = await adapter.fetch(bare("/api/client"), { protocol: "https" });
+    expect(await client.json()).toMatchObject({
+      protocol: "https",
+      secure: true,
+      hostname: "localhost",
+    });
+  });
   it("trusts proxies like Express's trust proxy setting", async () => {
     // Validated up front instead of failing per request.
     // Validated up front, with proxy-addr's rules: /0 would trust every address.

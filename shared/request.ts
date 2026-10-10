@@ -273,13 +273,27 @@ class FetchRequest extends ClientRequest implements NativeRequest {
     ip: string | undefined,
     trust: TrustFunction | undefined,
     subdomainOffset: unknown,
+    defaultProtocol: string,
   ) {
     super(trust, subdomainOffset);
-    // `Request.url` is already an absolute, normalized URL; slicing avoids a reparse.
+    // `Request.url` is normally an absolute, normalized URL; slicing avoids a reparse.
+    // Bun hands over the bare request target instead ("/path?query") when the
+    // Host header is missing or invalid, so a relative URL must not be sliced as
+    // if it had a scheme and host: that used to drop its first path segment.
     const full = raw.url;
-    const hostStart = full.indexOf("://") + 3;
-    const pathStart = full.indexOf("/", hostStart);
-    const url = pathStart === -1 ? "/" : full.slice(pathStart);
+    let url: string;
+    let protocol: string;
+    let urlHost = "";
+    if (full.charCodeAt(0) === 47) {
+      url = full;
+      protocol = defaultProtocol;
+    } else {
+      const hostStart = full.indexOf("://") + 3;
+      const pathStart = full.indexOf("/", hostStart);
+      url = pathStart === -1 ? "/" : full.slice(pathStart);
+      protocol = full.slice(0, hostStart - 3);
+      urlHost = full.slice(hostStart, pathStart === -1 ? undefined : pathStart);
+    }
     const queryStart = url.indexOf("?");
     this.method = raw.method;
     this.url = url;
@@ -288,11 +302,10 @@ class FetchRequest extends ClientRequest implements NativeRequest {
     this.headers = headersObject(raw.headers);
     this.query = queryStart === -1 ? new NullObject() : parseQuery(url.slice(queryStart + 1));
     // Like Express, the host comes from the Host header; the URL's is a fallback
-    // for Requests built without one (Bun always sends it).
-    const urlHost = full.slice(hostStart, pathStart === -1 ? undefined : pathStart);
+    // for Requests built without one.
     this.#connection = {
       socketAddress: ip,
-      protocol: full.slice(0, hostStart - 3),
+      protocol,
       host: this.headers.host || urlHost.replace(/^.*@/, "") || undefined,
     };
   }
@@ -306,8 +319,10 @@ export function createRequest(
   ip?: string,
   trust?: TrustFunction,
   subdomainOffset: unknown = DEFAULT_SUBDOMAIN_OFFSET,
+  /** The server's own scheme, for Requests whose URL carries none. */
+  protocol = "http",
 ): NativeRequest {
-  return new FetchRequest(raw, ip, trust, subdomainOffset);
+  return new FetchRequest(raw, ip, trust, subdomainOffset, protocol);
 }
 
 export type BodyReader = (request: NativeRequest, limit: number) => Promise<Buffer> | Buffer | null;

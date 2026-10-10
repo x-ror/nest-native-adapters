@@ -194,8 +194,15 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     }
     return this;
   }
-  readonly fetch = (raw: Request, info?: { ip?: string }): Promise<Response> => {
-    const request = createRequest(raw, info?.ip, this.trust, this.subdomainOffset);
+  /**
+   * Serves one fetch `Request`. `info.ip` is the client's socket address and
+   * `info.protocol` the server's own scheme, used when the Request URL has none.
+   */
+  readonly fetch = (
+    raw: Request,
+    info?: { ip?: string; protocol?: "http" | "https" },
+  ): Promise<Response> => {
+    const request = createRequest(raw, info?.ip, this.trust, this.subdomainOffset, info?.protocol);
     const response = new NativeResponse(request.method, this, request);
     this.dispatch(request, response);
     return response.done;
