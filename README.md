@@ -529,10 +529,10 @@ Both packages share one version, recorded in `CHANGELOG.md`.
    `packages/platform-bun/package.json`, and move the changelog's
    Unreleased entries under that version.
 2. Push a tag `v<version>`. The Release workflow builds, runs the full
-   check, test and Bun suites, checks that the tag matches both packages and
-   that a license is set, then publishes both packages to npm with
-   provenance. It needs an `NPM_TOKEN` secret in a GitHub environment named
-   `npm`.
+   check, test, Bun and packed-consumer suites, checks that the tag matches
+   both packages and that a license is set, then publishes both packages to
+   npm with provenance. It needs an `NPM_TOKEN` secret in a GitHub environment
+   named `npm`.
 
 ## License
 
