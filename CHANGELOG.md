@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed SSE coverage on Nest 10/11/12 and Node/Bun for event IDs/types,
+  retry values, multiline data, concurrent streams, `Last-Event-ID` headers
+  and Observable cleanup after client cancellation.
+
 - Signed webhook coverage on Nest 10/11/12 and Node/Bun: exact `rawBody`
   bytes for JSON, custom content types, binary and chunked UTF-8; signature
   rejection, byte-counted body limits, parser-error recovery and concurrency.
@@ -40,6 +44,9 @@ version and one changelog. The format follows
 
 ### Fixed
 
+- Legacy Nest SSE streams no longer terminate immediately because the raw
+  web `Request` lacks Node's `on("close")`. A close-event bridge maps client
+  aborts to subscription cleanup while preserving the web request API.
 - Request types expose optional upload interceptor fields and accurately type
   missing/array-valued headers and potentially absent hostnames.
 - Upload interceptors reject invalid `maxCount` configuration.

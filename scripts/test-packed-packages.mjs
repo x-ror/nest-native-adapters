@@ -84,12 +84,13 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Req, Scope, StreamableFile,
+  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Req, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
-  type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
+  type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
 } from "@nestjs/common";
+import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
 import { Type } from "class-transformer";
 import { IsInt, Min } from "class-validator";
@@ -485,6 +486,97 @@ try {
   }));
 } finally {
   await webhookApp.close();
+}
+const sseState = { active: new Set<string>(), finalized: [] as string[] };
+@Controller("events")
+class EventsController {
+  @Sse("finite")
+  finite(): Observable<MessageEvent> {
+    return new Observable((subscriber) => {
+      subscriber.next({ id: "first", type: "update", retry: 1500, data: { value: 7 } });
+      subscriber.next({ id: "second", type: "note", data: "line one\\nline two" });
+      subscriber.complete();
+    });
+  }
+  @Sse("live")
+  live(@Req() request: NativeRequest): Observable<MessageEvent> {
+    const id = request.headers["x-request-id"];
+    assert.ok(typeof id === "string");
+    const lastEventId = request.headers["last-event-id"];
+    return new Observable((subscriber) => {
+      assert.ok(!sseState.active.has(id));
+      sseState.active.add(id);
+      let index = 0;
+      const timer = setInterval(() => {
+        subscriber.next({ id: String(index++), type: "update", data: { requestId: id, lastEventId } });
+      }, 10);
+      return () => {
+        clearInterval(timer);
+        assert.ok(sseState.active.delete(id));
+        sseState.finalized.push(id);
+      };
+    });
+  }
+}
+@Module({ controllers: [EventsController] })
+class EventsModule {}
+const eventsAdapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+const eventsApp = await NestFactory.create(EventsModule, eventsAdapter, { logger: false });
+const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
+const waitFor = async (condition: () => boolean, message: string) => {
+  const deadline = Date.now() + 2000;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, message);
+    await delay(10);
+  }
+};
+try {
+  await eventsApp.listen(0, "127.0.0.1");
+  const base = await eventsApp.getUrl();
+  const finite = await fetch(\`\${base}/events/finite\`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(finite.status, 200);
+  assert.match(finite.headers.get("content-type") ?? "", /text\\/event-stream/);
+  const events = (await finite.text()).replaceAll("\\r\\n", "\\n").trim().split("\\n\\n");
+  assert.equal(events.length, 2);
+  assert.deepEqual(events[0]!.split("\\n").sort(),
+    ['data: {"value":7}', "event: update", "id: first", "retry: 1500"].sort());
+  assert.deepEqual(events[1]!.split("\\n").sort(),
+    ["data: line one", "data: line two", "event: note", "id: second"].sort());
+  for (const id of ["client-a", "client-b", "client-c"]) {
+    const response = await fetch(\`\${base}/events/live\`, {
+      headers: { "x-request-id": id, "last-event-id": \`resume-\${id}\` },
+      signal: AbortSignal.timeout(10000),
+    });
+    assert.equal(response.status, 200);
+    assert.ok(response.body);
+    const reader = response.body.getReader();
+    readers.push(reader);
+    const decoder = new TextDecoder();
+    let text = "";
+    while (!text.includes("\\n\\n", text.indexOf("data:"))) {
+      const chunk = await reader.read();
+      assert.ok(!chunk.done, \`Live SSE ended early: \${JSON.stringify(text)}; state=\${JSON.stringify(sseState)}\`);
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    const data = text.split("\\n").find((line) => line.startsWith("data: "));
+    assert.ok(data);
+    assert.deepEqual(JSON.parse(data.slice(6)), { requestId: id, lastEventId: \`resume-\${id}\` });
+  }
+  assert.equal(sseState.active.size, 3, "SSE clients must stay subscribed simultaneously");
+  await readers[0]!.cancel();
+  await waitFor(() => sseState.finalized.includes("client-a"), "Cancellation must unsubscribe");
+  assert.deepEqual([...sseState.active].sort(), ["client-b", "client-c"]);
+  const stillLive = await readers[1]!.read();
+  assert.equal(stillLive.done, false, "Cancelling one client must not close other streams");
+  await Promise.all(readers.slice(1).map((reader) => reader.cancel()));
+  await waitFor(() => sseState.active.size === 0, "All SSE subscriptions must be released");
+  assert.deepEqual(sseState.finalized.sort(), ["client-a", "client-b", "client-c"]);
+  const recovered = await fetch(\`\${base}/events/finite\`, { signal: AbortSignal.timeout(5000) });
+  assert.equal(recovered.status, 200);
+  assert.match(await recovered.text(), /id: second/);
+} finally {
+  await Promise.all(readers.map((reader) => reader.cancel()));
+  await eventsApp.close();
 }
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,

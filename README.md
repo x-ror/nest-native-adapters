@@ -166,6 +166,13 @@ arrays), global prefixes, URI, header, media-type and custom versioning, Nest
 middleware, JSON, nested URL-encoded and multipart form bodies, raw bodies,
 status/headers/cookies/redirects, HEAD/no-content responses, `StreamableFile`,
 Nest `@Sse()` routes returning Observables, and Nest's standard request pipeline.
+SSE event IDs, event types, retry values and multiline data are covered across
+the supported Nest versions. A client disconnect unsubscribes its Observable
+without closing other clients' streams. `Last-Event-ID` is available through
+request headers; application code must implement replay/resume itself.
+For legacy Nest SSE internals, the raw web request has a close-event bridge
+backed by its abort signal; this does not make it a Node `IncomingMessage`
+or provide arbitrary Node request events.
 Repeated form fields become arrays, bracket notation creates nested
 objects/arrays, and multipart file fields are exposed as native `File` values
 on `@Body()` by default. Opt-in disk-backed streaming exposes files through

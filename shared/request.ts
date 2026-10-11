@@ -51,6 +51,20 @@ export interface NativeRequest {
   secret?: string;
 }
 
+/** Legacy Nest SSE expects a Node-style close listener on the raw web request. */
+export function withRequestCloseEvent(raw: Request): Request {
+  if ("on" in raw && typeof raw.on === "function") return raw;
+  Object.defineProperty(raw, "on", {
+    value(event: string, listener: () => void) {
+      if (event !== "close") throw new TypeError(`Unsupported raw request event: ${event}`);
+      if (raw.signal.aborted) queueMicrotask(listener);
+      else raw.signal.addEventListener("abort", () => listener(), { once: true });
+      return raw;
+    },
+  });
+  return raw;
+}
+
 export interface DiskUploadFile {
   fieldname: string;
   originalname: string;
@@ -346,7 +360,7 @@ export function createRequest(
   /** The server's own scheme, for Requests whose URL carries none. */
   protocol = "http",
 ): NativeRequest {
-  return new FetchRequest(raw, ip, trust, subdomainOffset, protocol);
+  return new FetchRequest(withRequestCloseEvent(raw), ip, trust, subdomainOffset, protocol);
 }
 
 export type BodyReader = (request: NativeRequest, limit: number) => Promise<Buffer> | Buffer | null;

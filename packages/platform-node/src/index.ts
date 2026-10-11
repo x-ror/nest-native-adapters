@@ -9,6 +9,7 @@ import {
   NativeResponse,
   NullObject,
   parseQuery,
+  withRequestCloseEvent,
   type CookieWriter,
   type NativeRequest,
   type ResponseBody,
@@ -125,9 +126,11 @@ class NodeRequest extends ClientRequest implements NativeRequest {
       init.body = Readable.toWeb(body) as ReadableStream<Uint8Array>;
       init.duplex = "half";
     }
-    return (this.webRequest = new Request(
-      new URL(this.originalUrl, `${this.protocol}://${incoming.headers.host ?? "localhost"}`),
-      init,
+    return (this.webRequest = withRequestCloseEvent(
+      new Request(
+        new URL(this.originalUrl, `${this.protocol}://${incoming.headers.host ?? "localhost"}`),
+        init,
+      ),
     ));
   }
 }

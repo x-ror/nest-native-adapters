@@ -49,6 +49,7 @@ export {
   NullObject,
   parseQuery,
   subdomainsOf,
+  withRequestCloseEvent,
   type ClientConnection,
   type DiskUploadFile,
 } from "./request.js";

@@ -51,6 +51,7 @@ import {
 import { BunHttpAdapter } from "nestjs-adapter-bun";
 import { NativeRouter, type Handler } from "../shared/router.js";
 import type { NativeRequest as RouterRequest } from "../shared/request.js";
+import { withRequestCloseEvent } from "../shared/request.js";
 import type { NativeResponse as RouterResponse } from "../shared/response.js";
 import { compareAdapters, startFixture } from "../packages/conformance/src/compare.js";
 import { FixtureModule, GreetingService } from "../packages/conformance/src/fixture.js";
@@ -173,6 +174,43 @@ class PagesModule {}
 const apps: INestApplication[] = [];
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
+});
+
+describe("legacy SSE raw request close events", () => {
+  it("preserves web request identity and emits close only on abort", async () => {
+    const controller = new AbortController();
+    const raw = new Request("http://localhost/", { signal: controller.signal });
+    const request = withRequestCloseEvent(raw);
+    expect(withRequestCloseEvent(request)).toBe(raw);
+    expect(request).toBeInstanceOf(Request);
+    expect("on" in request && typeof request.on).toBe("function");
+    if (!("on" in request) || typeof request.on !== "function")
+      throw new Error("Missing close bridge");
+    const on = request.on.bind(request);
+    const closed = vi.fn();
+    expect(request.on("close", closed)).toBe(raw);
+    await Promise.resolve();
+    expect(closed).not.toHaveBeenCalled();
+    controller.abort();
+    controller.abort();
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(() => on("data", closed)).toThrow("Unsupported raw request event");
+  });
+
+  it("notifies a listener registered after disconnect asynchronously", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const request = withRequestCloseEvent(
+      new Request("http://localhost/", { signal: controller.signal }),
+    );
+    if (!("on" in request) || typeof request.on !== "function")
+      throw new Error("Missing close bridge");
+    const closed = vi.fn();
+    request.on("close", closed);
+    expect(closed).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("native router static route index", () => {
