@@ -42,7 +42,10 @@ existing applications, not to recommend Apollo 4 for new production projects.
 `pnpm run test:graphql` builds and installs real tarballs into an isolated
 Nest 10 consumer, checks declarations with `skipLibCheck: false`, and compares
 Node/Bun responses with Express for queries, mutations, authorization errors,
-GET, CSRF, CORS, contexts, a global prefix and application shutdown.
+GET, CSRF, CORS, contexts, a global prefix and application shutdown. It also
+checks Nest-discovered plugins with injected dependencies, plugin rejection
+status/errors, overlapping requests with distinct authentication/context
+values, and completion of plugin request and server lifecycles.
 Strict declaration checking of the upstream Nest GraphQL/Apollo packages also
 needs their optional type dependencies: `ts-morph`, `@apollo/gateway` and
 `@types/ws`. The isolated consumer installs them for type checking only;

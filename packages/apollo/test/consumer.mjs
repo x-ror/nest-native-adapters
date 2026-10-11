@@ -1,9 +1,11 @@
 import "reflect-metadata";
 import assert from "node:assert/strict";
-import { Module, UnauthorizedException } from "@nestjs/common";
+import { setTimeout } from "node:timers/promises";
+import { Inject, Module, UnauthorizedException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
-import { ApolloDriver } from "@nestjs/apollo";
+import { ApolloDriver, Plugin } from "@nestjs/apollo";
 import { GraphQLModule } from "@nestjs/graphql";
+import { GraphQLError } from "graphql";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import { NativeApolloDriver } from "nestjs-adapter-apollo";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
@@ -15,13 +17,55 @@ for (const contextKind of mode === "express"
   ? ["function", "default"]
   : ["function", "object", "default"]) {
   let stopped = false;
+  const pluginState = {
+    started: 0,
+    stopped: 0,
+    completed: 0,
+    active: new Set(),
+    maxActive: 0,
+  };
+  class DiscoveredPlugin {
+    constructor(state) {
+      this.state = state;
+    }
+    async serverWillStart() {
+      this.state.started++;
+      return {
+        serverWillStop: async () => {
+          this.state.stopped++;
+        },
+      };
+    }
+    async requestDidStart({ contextValue }) {
+      const { state } = this;
+      assert.ok(!state.active.has(contextValue), "Requests must not share a context");
+      state.active.add(contextValue);
+      state.maxActive = Math.max(state.maxActive, state.active.size);
+      return {
+        async didResolveOperation() {
+          contextValue.pluginRequestId = contextValue.req.headers["x-request-id"];
+          if (contextValue.req.headers["x-block"] === "yes") {
+            throw new GraphQLError("Fixture quota exceeded", {
+              extensions: { code: "QUOTA_LIMIT_REACHED", http: { status: 429 } },
+            });
+          }
+        },
+        async willSendResponse() {
+          assert.ok(state.active.delete(contextValue));
+          state.completed++;
+        },
+      };
+    }
+  }
+  Inject("plugin-state")(DiscoveredPlugin, undefined, 0);
+  Plugin()(DiscoveredPlugin);
   const options = {
     driver: mode === "express" ? ApolloDriver : NativeApolloDriver,
     path: "/gql",
     useGlobalPrefix: true,
     playground: false,
     typeDefs: `
-      type Query { hello(name: String!): String!, secured: String! }
+      type Query { hello(name: String!): String!, secured: String!, isolated: String! }
       type Mutation { add(a: Int!, b: Int!): Int! }
     `,
     resolvers: {
@@ -38,6 +82,16 @@ for (const contextKind of mode === "express"
         secured: (_root, _args, context) => {
           if (context.req.headers["x-auth"] !== "yes") throw new UnauthorizedException();
           return "authorized";
+        },
+        isolated: async (_root, _args, context) => {
+          const requestId = context.req.headers["x-request-id"];
+          const auth = context.req.headers["x-auth"];
+          assert.equal(context.pluginRequestId, requestId);
+          await setTimeout(20);
+          assert.equal(context.req.headers["x-request-id"], requestId);
+          assert.equal(context.req.headers["x-auth"], auth);
+          assert.equal(context.pluginRequestId, requestId);
+          return `${requestId}:${auth}`;
         },
       },
       Mutation: { add: (_root, { a, b }) => a + b },
@@ -64,7 +118,10 @@ for (const contextKind of mode === "express"
         : {}),
   };
   class TestModule {}
-  Module({ imports: [GraphQLModule.forRoot(options)] })(TestModule);
+  Module({
+    imports: [GraphQLModule.forRoot(options)],
+    providers: [DiscoveredPlugin, { provide: "plugin-state", useValue: pluginState }],
+  })(TestModule);
   const adapter =
     mode === "express"
       ? new ExpressAdapter()
@@ -106,6 +163,26 @@ for (const contextKind of mode === "express"
     const allowed = await json({ query: "{ secured }" }, { "x-auth": "yes" });
     assert.deepEqual(allowed.body, { data: { secured: "authorized" } });
     result.push(allowed);
+    const blocked = await json({ query: "{ secured }" }, { "x-auth": "yes", "x-block": "yes" });
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.body.errors[0].extensions.code, "QUOTA_LIMIT_REACHED");
+    result.push(blocked);
+    const concurrent = await Promise.all(
+      Array.from({ length: 12 }, async (_, index) => {
+        const auth = index % 2 ? "yes" : "no";
+        const response = await json(
+          { query: "{ isolated }" },
+          { "x-request-id": String(index), "x-auth": auth },
+        );
+        assert.deepEqual(response, {
+          status: 200,
+          body: { data: { isolated: `${index}:${auth}` } },
+        });
+        return response;
+      }),
+    );
+    result.push(...concurrent);
+    assert.ok(pluginState.maxActive > 1, "The fixture must exercise overlapping requests");
     for (const query of ["{ unknown }", "{", "query($name: String!) { hello(name: $name) }"]) {
       const error = await json({ query });
       assert.equal(error.status, query.includes("$name") ? 200 : 400);
@@ -140,6 +217,10 @@ for (const contextKind of mode === "express"
     await app.close();
   }
   assert.equal(stopped, true, "Apollo stops with the Nest application");
+  assert.equal(pluginState.started, 1, "Nest discovers and starts the injected plugin once");
+  assert.equal(pluginState.stopped, 1, "Nest stops the discovered plugin once");
+  assert.equal(pluginState.active.size, 0, "All plugin request lifecycles finish");
+  assert.equal(pluginState.completed, 21, "Plugins see successful and failed GraphQL requests");
 }
 if (mode !== "express") {
   assert.deepEqual(
@@ -156,5 +237,5 @@ await import("node:fs/promises").then(({ writeFile }) =>
   writeFile(`${mode}.json`, JSON.stringify(reports)),
 );
 console.log(
-  `${mode}: Apollo queries, mutations, context, errors, GET, CSRF, CORS and shutdown passed`,
+  `${mode}: Apollo operations, concurrent contexts, injected plugins and HTTP lifecycle passed`,
 );

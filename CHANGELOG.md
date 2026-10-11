@@ -13,6 +13,8 @@ version and one changelog. The format follows
   contexts and no Express/Fastify identity spoofing.
 - Packed GraphQL consumer checks and CI coverage for queries, mutations,
   authorization errors, GET, CSRF, CORS, global prefixes and Apollo shutdown.
+- GraphQL coverage for Nest-discovered injectable plugins, plugin rejection
+  responses, concurrent request context isolation and plugin lifecycle cleanup.
 
 - Shared Node/Bun integration coverage for transformed and validated DTOs,
   guards, injected exception filters, asynchronous service errors, response
