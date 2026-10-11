@@ -14,8 +14,7 @@ decorators, guards, pipes, interceptors, exception filters, and application life
 The two adapters include shared router, request parsing, and response code in their builds.
 `shared/` is internal source, not a separate npm package.
 Run `pnpm run build` before packing or publishing either adapter; only `dist/` is shipped. See Releasing below for publishing requirements. Supported baseline:
-NestJS **10.1.3/common + 10.2.8/core** or **12.1.2**, Node.js 22+, current Bun.
-Nest 11 is not yet verified or included in the peer range.
+NestJS **10.1.3/common + 10.2.8/core**, **11.0.0+**, or **12.1.2+**, Node.js 22+, current Bun.
 Neither adapter uses Express or Fastify. Express is a test-only reference and
 Fastify a benchmark-only one.
 
@@ -23,7 +22,7 @@ Fastify a benchmark-only one.
 
 | Capability                                           | Node adapter | Bun adapter   | Notes                                                                                      |
 | ---------------------------------------------------- | ------------ | ------------- | ------------------------------------------------------------------------------------------ |
-| Nest baseline                                        | Verified     | Verified      | Nest 10.1.3/common + 10.2.8/core and 12.1.2; Nest 11 unverified                            |
+| Nest baseline                                        | Verified     | Verified      | Nest 10.1.3/common + 10.2.8/core, 11.0.0, 11.2.7 and 12.1.2                                |
 | Runtime                                              | Node.js 22+  | Current Bun   | Bun uses `Bun.serve`                                                                       |
 | Routing, middleware, guards, pipes, interceptors, DI | Supported    | Supported     | Shared adapter implementation                                                              |
 | JSON and nested URL-encoded bodies                   | Supported    | Supported     | Parsed body limit defaults to 100 KiB                                                      |
@@ -77,9 +76,10 @@ experiment has been retired. Explicit `@Inject()` remains usable.
 ### Existing Nest 10 applications
 
 The adapters also accept Nest 10 without upgrading the application to Nest 12.
-The isolated packed-package matrix checks both baselines on Node and Bun,
-including legacy wildcard middleware, disk uploads, cookie responses and
-response completion events. This does not imply compatibility with every
+The isolated packed-package matrix checks Nest 10, 11 and 12 on Node and Bun,
+including legacy wildcard middleware, disk uploads, cookie responses,
+DTO validation, guards/filters, versioned routes and streamed responses.
+This does not imply compatibility with every
 Express/Fastify plugin or external service in an existing application.
 Routes still use `path-to-regexp` 8 syntax: common legacy middleware wildcard
 segments are converted, but legacy regular-expression routes are not supported.
@@ -87,7 +87,7 @@ segments are converted, but legacy regular-expression routes are not supported.
 Nest 10 does not provide Nest 12's `cookies` application option or
 `@Cookies()` / `@SignedCookies()` decorators. Install `cookie-parser` to
 populate `request.cookies`, `request.signedCookies` and the signing secret;
-`res.cookie()` / `res.clearCookie()` work on both baselines. Nest 12 keeps
+`res.cookie()` / `res.clearCookie()` work across the supported baselines. Nest 12 keeps
 using its built-in cookie serializer and application-level signer.
 
 The request facade is not an `IncomingMessage`: it does not expose Express's
@@ -571,8 +571,12 @@ pnpm bench
 pnpm run dev
 ```
 
-`test:packed` installs both built tarballs into clean temporary Nest 10 and 12 projects,
-type-checks its public imports and runs a multipart upload on Node and Bun.
+`test:packed` installs both built tarballs into clean temporary Nest 10, 11 and 12 projects,
+including Nest 11.0.0 and 11.2.7. It type-checks public imports and covers uploads,
+cookies, response events, global prefixes, route parameters, DTO transformation/
+validation, guards/filters, header versioning, streamed responses, HEAD and CORS
+on Node and Bun. This HTTP matrix does not extend the Apollo driver's supported
+Nest versions; its GraphQL stacks are listed separately.
 Declaration checks run with `skipLibCheck: false`. TypeScript consumers need
 `@types/node`; consumers importing the Bun adapter also need `@types/bun`.
 `NativeRequest.headers` uses Node's `IncomingHttpHeaders` shape: arbitrary

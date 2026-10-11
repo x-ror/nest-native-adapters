@@ -8,6 +8,11 @@ version and one changelog. The format follows
 
 ### Added
 
+- Nest 11 HTTP adapter support, with strict packed consumers on Nest 11.0.0
+  and 11.2.7 for both Node and Bun. The Nest 10/11/12 matrix now also covers
+  DTO validation, guards/filters, prefixes, parameters, header versioning,
+  streamed responses, HEAD and CORS.
+
 - Private experimental `nestjs-adapter-apollo` workspace package: native
   Apollo 4 / Nest 10 and Apollo 5 / Nest 12 HTTP driver on Node and Bun, with request-isolated
   contexts and no Express/Fastify identity spoofing.

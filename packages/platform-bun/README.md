@@ -20,6 +20,7 @@ Nest's own. CORS, cookies, trusted proxies, static files, body parsers,
 `@Sse()`, uploads, versioning and views behave like Nest's Express adapter,
 checked by a conformance suite against Express.
 
-The supported baseline is NestJS 12.1.2. See the
+Supported baselines are NestJS 10.1.3/common + 10.2.8/core, 11.0.0+ and 12.1.2+.
+Packed consumers cover Nest 11.0.0 and 11.2.7 on both runtimes. See the
 [repository README](https://github.com/x-ror/nest-native-adapters#readme) for
 the compatibility matrix, migration notes from Express, and known deviations.
