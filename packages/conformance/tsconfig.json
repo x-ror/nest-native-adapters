@@ -1,6 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "src", "outDir": "dist", "types": ["node"] },
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    "emitDecoratorMetadata": true
+  },
   "include": ["src/**/*.ts"],
   "references": [{ "path": "../platform-node" }, { "path": "../platform-bun" }]
 }

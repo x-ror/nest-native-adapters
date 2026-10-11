@@ -243,6 +243,17 @@ describe("native router static route index", () => {
 });
 
 describe("native Nest adapters", () => {
+  it("sets full response MIME types without accepting extension shorthands", async () => {
+    const response = new NativeResponse("GET");
+    expect(response.type("application/json")).toBe(response);
+    expect(() => response.type("json")).toThrow("full MIME type");
+    expect(response.getHeader("content-type")).toBe("application/json");
+    response.type("text/html; charset=utf-8").send("<p>hello</p>");
+    const result = await response.done;
+    expect(result.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await result.text()).toBe("<p>hello</p>");
+  });
+
   it("matches real Nest on Express for supported behavior", async () => {
     await compareAdapters(
       () => new NodeHttpAdapter(),

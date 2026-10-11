@@ -131,6 +131,13 @@ export class NativeResponse {
   header(name: string, value: string): this {
     return this.setHeader(name, value);
   }
+  /** Sets a full MIME type, as used by Swagger's response handlers (not extension shorthands). */
+  type(contentType: string): this {
+    if (!contentType.includes("/")) {
+      throw new TypeError("Response type requires a full MIME type, such as application/json.");
+    }
+    return this.setHeader("content-type", contentType);
+  }
   getHeader(name: string): string | string[] | undefined {
     const key = name.toLowerCase();
     const value = this.headerValues[key];

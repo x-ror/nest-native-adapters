@@ -28,6 +28,7 @@ import { NestFactory } from "@nestjs/core";
 import { compareAdapters, startFixture } from "./compare.js";
 import { checkLifecycle } from "./lifecycle.js";
 import { FixtureModule } from "./fixture.js";
+import { checkNestIntegration } from "./integration.js";
 
 @Controller("stream-upload")
 class StreamingUploadController {
@@ -68,6 +69,7 @@ await compareAdapters(
 );
 
 await checkLifecycle("native-bun", (options) => new BunHttpAdapter(options));
+await checkNestIntegration("native-bun", (options) => new BunHttpAdapter(options));
 
 // Bun hands over a bare "/path" Request URL when the Host header is missing or
 // invalid; the path must still route as sent (it used to lose its first segment).

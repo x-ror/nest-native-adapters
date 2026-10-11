@@ -6,12 +6,20 @@ version and one changelog. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Shared Node/Bun integration coverage for transformed and validated DTOs,
+  guards, injected exception filters, asynchronous service errors, response
+  interceptors, Swagger documents/UI assets, and memory/disk upload decorators.
+
 ### Fixed
 
 - Request types expose optional upload interceptor fields and accurately type
   missing/array-valued headers and potentially absent hostnames.
 - Upload interceptors reject invalid `maxCount` configuration.
 - Packed-consumer checks validate declarations without `skipLibCheck`.
+- Swagger response handlers no longer fail because `res.type()` was missing.
+  `NativeResponse.type()` accepts full MIME types, not extension shorthands.
 
 ## [0.1.1] - 2026-10-11
 

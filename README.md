@@ -41,6 +41,7 @@ Fastify a benchmark-only one.
 | Socket.IO gateways                                   | Supported    | Not supported | Automatic on Node; under Bun use the Node adapter                                          |
 | File upload interceptors                             | Supported    | Supported     | Memory storage by default; opt-in temporary disk streaming                                 |
 | MVC (`@Render()`)                                    | Supported    | Supported     | Express-compatible engines (`ejs`, `pug`, `hbs`)                                           |
+| Swagger documents and UI                             | Supported    | Supported     | `@nestjs/swagger` 12.0.2; JSON/YAML, global prefix and local UI assets                     |
 
 ## Usage
 
@@ -58,6 +59,36 @@ For Bun, replace `NodeHttpAdapter` with `BunHttpAdapter` from
 `nestjs-adapter-bun` and run the application using Bun.
 Actual Nest requires `reflect-metadata`; the previous no-reflection framework
 experiment has been retired. Explicit `@Inject()` remains usable.
+
+### Validation and Swagger
+
+Use Nest's `ValidationPipe` with `class-validator` and `class-transformer`
+installed in the application. Compile DTO classes with
+`experimentalDecorators: true` and `emitDecoratorMetadata: true`, and load
+`reflect-metadata` before the application. Without emitted metadata, Nest
+cannot infer the DTO type for global validation.
+
+`@nestjs/swagger` works with both adapters:
+
+```ts
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+
+app.setGlobalPrefix("v1");
+const document = SwaggerModule.createDocument(
+  app,
+  new DocumentBuilder().setTitle("My API").setVersion("1").build(),
+);
+SwaggerModule.setup("docs", app, document, { useGlobalPrefix: true });
+```
+
+This serves `/v1/docs/`, `/v1/docs-json`, and `/v1/docs-yaml`, including local
+Swagger UI scripts and styles. Describe DTO properties with `@ApiProperty()`
+and uploads with `@ApiConsumes("multipart/form-data")` / `@ApiBody()`.
+The conformance fixture uses these decorators; the Swagger CLI plugin is not
+verified. Swagger 12.0.2 declares TypeScript 5.5/6 peer support; the repository's
+TypeScript 7 tooling is outside that range, despite the runtime scenario passing.
+`NativeResponse.type()` supports full MIME strings such as `application/json`
+and `text/html`, but rejects Express extension shorthands such as `"json"`.
 
 ## Current scope
 
@@ -511,6 +542,10 @@ Declaration checks run with `skipLibCheck: false`. TypeScript consumers need
 `NativeRequest.headers` uses Node's `IncomingHttpHeaders` shape: arbitrary
 headers may be strings, arrays, or absent. `hostname` can be absent, and
 `file`/`files` are optional fields populated by upload interceptors.
+`test:conformance` and `test:bun` also run the same Nest integration fixture:
+DTO transformation/validation, pipeline order, guard rejection, exception
+filters, async service errors, Swagger schemas/UI assets, and single/multiple
+uploads in memory and on disk, including validation failures and cleanup.
 `dev` watches the Node example; `vp run build` builds both example entrypoints.
 Run `bun dist/bun.js` for the Bun example. Both expose `/hello/world` on port 3000.
 Dependency versions live in `pnpm-workspace.yaml` catalogs. The pnpm version is pinned

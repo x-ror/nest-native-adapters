@@ -66,6 +66,8 @@ export default defineConfig({
           /^@nestjs\//,
           /^@?socket\.io/,
           "cookie-parser",
+          "class-transformer",
+          "class-validator",
           "busboy",
           "reflect-metadata",
           "rxjs",
