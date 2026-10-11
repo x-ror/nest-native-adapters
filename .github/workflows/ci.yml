@@ -33,3 +33,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:bun
       - run: pnpm run test:packed
+      - run: pnpm run test:graphql

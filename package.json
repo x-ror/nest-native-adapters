@@ -17,6 +17,7 @@
     "test:conformance": "vp pack && node packages/conformance/dist/smoke.js",
     "test:bun": "vp pack && bun packages/conformance/dist/bun.js",
     "test:packed": "pnpm run build && node scripts/test-packed-packages.mjs",
+    "test:graphql": "pnpm run build && node scripts/test-apollo.mjs",
     "bench": "vp pack && node packages/conformance/dist/benchmark.js node",
     "bench:express": "vp pack && node packages/conformance/dist/benchmark.js express",
     "bench:fastify": "vp pack && node packages/conformance/dist/benchmark.js fastify",

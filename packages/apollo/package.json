@@ -1,0 +1,41 @@
+{
+  "name": "nestjs-adapter-apollo",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Native Apollo HTTP driver for NestJS Node and Bun adapters.",
+  "license": "0BSD",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "devDependencies": {
+    "@apollo/server": "4.10.0",
+    "@nestjs/apollo": "12.0.11",
+    "@nestjs/common": "10.1.3",
+    "@nestjs/core": "10.2.8",
+    "@nestjs/graphql": "12.1.1",
+    "graphql": "16.8.1",
+    "nestjs-adapter-node": "workspace:*",
+    "reflect-metadata": "0.1.13",
+    "rxjs": "catalog:"
+  },
+  "peerDependencies": {
+    "@apollo/server": "^4.10.0",
+    "@nestjs/apollo": "^12.0.11",
+    "@nestjs/common": "^10.1.3",
+    "@nestjs/core": "^10.2.8",
+    "@nestjs/graphql": "^12.1.1",
+    "graphql": "^16.8.1",
+    "nestjs-adapter-node": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -22,6 +22,17 @@ export default defineConfig({
   },
   fmt: { semi: true, singleQuote: false, ignorePatterns: ["**/dist/**", "**/node_modules/**"] },
   pack: [
+    {
+      name: "apollo",
+      entry: { index: "packages/apollo/src/index.ts" },
+      outDir: "packages/apollo/dist",
+      tsconfig: "packages/apollo/tsconfig.json",
+      platform: "node",
+      fixedExtension: false,
+      dts: true,
+      sourcemap: true,
+      deps: { neverBundle: [/^@nestjs\//, /^@apollo\//, /^nestjs-adapter-/, "graphql"] },
+    },
     ...["platform-node", "platform-bun"].map((name) => ({
       name,
       entry: { index: `packages/${name}/src/index.ts` },
