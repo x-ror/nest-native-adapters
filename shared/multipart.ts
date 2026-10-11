@@ -24,6 +24,8 @@ export async function parseDiskMultipart(
   request: NativeRequest,
   limit: number,
   rootDirectory?: string,
+  fileSizeLimit = limit,
+  filesLimit?: number,
 ): Promise<ParsedDiskMultipart> {
   const bodyStream = request.raw.body;
   const headers = new Headers(request.raw.headers);
@@ -45,11 +47,16 @@ export async function parseDiskMultipart(
   const body = Object.create(null) as Record<string, unknown>;
   const files: DiskUploadFile[] = [];
   let writeError: unknown;
+  let limitError: PayloadTooLargeException | undefined;
   let parser: ReturnType<typeof Busboy>;
   try {
     parser = Busboy({
       headers: Object.fromEntries(headers) as Record<string, string>,
-      limits: { fieldSize: limit, fileSize: limit },
+      limits: {
+        fieldSize: limit,
+        fileSize: fileSizeLimit,
+        ...(filesLimit === undefined ? {} : { files: filesLimit }),
+      },
     });
   } catch (error) {
     await cleanup();
@@ -67,6 +74,9 @@ export async function parseDiskMultipart(
     } catch (error) {
       parser.destroy(error as Error);
     }
+  });
+  parser.on("filesLimit", () => {
+    limitError ??= new PayloadTooLargeException();
   });
   parser.on("file", (fieldname, stream, info) => {
     const filename = randomUUID();
@@ -89,7 +99,9 @@ export async function parseDiskMultipart(
         callback(null, chunk);
       },
     });
-    stream.once("limit", () => parser.destroy(new PayloadTooLargeException()));
+    stream.once("limit", () => {
+      limitError ??= new PayloadTooLargeException();
+    });
     const write = pipeline(
       stream,
       counter,
@@ -121,6 +133,7 @@ export async function parseDiskMultipart(
       parser,
     );
     await Promise.all(fileWrites);
+    if (limitError) throw limitError;
     return { body, files, cleanup };
   } catch (error) {
     const writeResults = await Promise.allSettled(fileWrites);

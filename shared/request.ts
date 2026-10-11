@@ -338,6 +338,10 @@ export function createRequest(
 }
 
 export type BodyReader = (request: NativeRequest, limit: number) => Promise<Buffer> | Buffer | null;
+export interface MultipartLimits {
+  fileSize?: number;
+  files?: number;
+}
 
 export async function readWebBody(
   body: ReadableStream<Uint8Array>,
@@ -387,6 +391,7 @@ export async function parseRequestBody(
   limit: number,
   rawBody: boolean,
   read: BodyReader,
+  multipartLimits?: MultipartLimits,
 ): Promise<void> {
   const bytes = await read(request, limit);
   if (bytes === null) return;
@@ -408,9 +413,23 @@ export async function parseRequestBody(
       const formData = await new Response(bytes as unknown as BodyInit, {
         headers: { "content-type": request.headers["content-type"]! },
       }).formData();
+      let fileCount = 0;
+      for (const [, entry] of formData.entries()) {
+        const value: unknown = entry;
+        if (typeof value === "string") continue;
+        if (!(value instanceof File)) continue;
+        fileCount++;
+        if (
+          (multipartLimits?.fileSize !== undefined && value.size > multipartLimits.fileSize) ||
+          (multipartLimits?.files !== undefined && fileCount > multipartLimits.files)
+        ) {
+          throw new PayloadTooLargeException();
+        }
+      }
       request.body = nestedFormObject(formData.entries());
       return;
     } catch (error) {
+      if (error instanceof PayloadTooLargeException) throw error;
       if (error instanceof BadRequestException) throw error;
       throw new BadRequestException("Invalid multipart form data");
     }

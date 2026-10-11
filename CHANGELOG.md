@@ -17,6 +17,8 @@ First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.
 - Opt-in disk-backed streaming for multipart file parts via `uploadStorage`,
   with temporary files exposed through `DiskUploadedFileData` and removed
   after the response completes.
+- Adapter-wide multipart per-file size (`uploadFileLimit`) and file-count
+  (`uploadFilesLimit`) limits, enforced in memory and streaming modes.
 - All Nest versioning types, native HTTPS via `httpsOptions`, `@Sse()`,
   `res.write()` streaming, `@Render()` with Express-compatible engines,
   WebSocket gateways (Node: Nest's adapters; Bun: `BunWsAdapter`).

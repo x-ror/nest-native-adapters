@@ -10,9 +10,10 @@ history, not active workspace packages.
 - Bun uses `Bun.serve`, not `node:http` running under Bun. Its native server is
   wrapped only for Nest's event/address listen contract.
 - Requests and responses use the supported fields/APIs documented in README.
-  Express plugins, Multer's `fileFilter` and per-file options, and WebSocket
+  Express plugins, Multer's `fileFilter` and per-interceptor options, and WebSocket
   namespaces remain outside the implementation. Multipart files use memory
   storage by default; `uploadStorage` opts into bounded temporary disk streaming.
+  `uploadFileLimit` and `uploadFilesLimit` apply adapter-wide to both modes.
   Nest `@Sse()` Observable
   routes, `res.write()` streaming, opt-in text/raw body parsers, all Nest
   versioning types, native HTTPS via `httpsOptions` and response events are

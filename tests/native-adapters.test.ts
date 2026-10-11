@@ -141,6 +141,12 @@ function streamingUploadModule(fileInterceptor: (field: string) => Type<NestInte
         body,
       };
     }
+
+    @Post("many")
+    @UseInterceptors(FilesInterceptor("upload"))
+    many(@UploadedFiles() files: DiskUploadedFileData[]) {
+      return files.map(({ originalname, size }) => ({ originalname, size }));
+    }
   }
   @Module({ controllers: [StreamingUploadController] })
   class StreamingUploadModule {}
@@ -314,8 +320,11 @@ describe("native Nest adapters", () => {
   });
   it("streams opt-in multipart uploads to temporary files and removes them after the response", async () => {
     const directory = await mkdtemp(join(tmpdir(), "native-upload-test-"));
+    const fileLimit = 2 * 1024 * 1024 + 100;
     const adapter = new NodeHttpAdapter({
       uploadLimit: 3 * 1024 * 1024,
+      uploadFileLimit: fileLimit,
+      uploadFilesLimit: 1,
       uploadStorage: { directory },
     });
     const app = await NestFactory.create(streamingUploadModule(FileInterceptor), adapter, {
@@ -324,7 +333,8 @@ describe("native Nest adapters", () => {
     try {
       await app.listen(0, "127.0.0.1");
       const form = new FormData();
-      const contents = `large streamed upload${"x".repeat(2 * 1024 * 1024)}`;
+      const prefix = "large streamed upload";
+      const contents = `${prefix}${"x".repeat(fileLimit - prefix.length)}`;
       form.append("description", "disk-backed");
       form.append("upload", new Blob([contents], { type: "text/plain" }), "large.txt");
       const response = await fetch(`${await app.getUrl()}/stream-upload`, {
@@ -345,6 +355,31 @@ describe("native Nest adapters", () => {
       expect(uploaded.path).toContain(uploaded.destination);
       await new Promise((resolve) => setTimeout(resolve, 20));
       await expect(readFile(uploaded.path)).rejects.toMatchObject({ code: "ENOENT" });
+
+      const fileTooLarge = new FormData();
+      fileTooLarge.append(
+        "upload",
+        new Blob(["x".repeat(fileLimit + 1)]),
+        "per-file-limit.bin",
+      );
+      const fileLimitResponse = await fetch(`${await app.getUrl()}/stream-upload`, {
+        method: "POST",
+        body: fileTooLarge,
+      });
+      expect(fileLimitResponse.status).toBe(413);
+      await fileLimitResponse.arrayBuffer();
+      expect(await readdir(directory)).toEqual([]);
+
+      const tooManyFiles = new FormData();
+      tooManyFiles.append("upload", new Blob(["first"]), "first.txt");
+      tooManyFiles.append("upload", new Blob(["second"]), "second.txt");
+      const filesLimitResponse = await fetch(`${await app.getUrl()}/stream-upload/many`, {
+        method: "POST",
+        body: tooManyFiles,
+      });
+      expect(filesLimitResponse.status).toBe(413);
+      await filesLimitResponse.arrayBuffer();
+      expect(await readdir(directory)).toEqual([]);
 
       const oversized = new FormData();
       oversized.append("upload", new Blob(["x".repeat(3 * 1024 * 1024 + 1)]), "too-large.bin");
@@ -1376,6 +1411,54 @@ describe("native Nest adapters", () => {
       );
       expect(actual).toEqual(expected);
     }
+  });
+  it("enforces per-file and file-count limits with in-memory multipart parsing", async () => {
+    expect(() => new NodeHttpAdapter({ uploadFileLimit: 0 })).toThrow(
+      "uploadFileLimit must be a positive integer",
+    );
+    expect(() => new NodeHttpAdapter({ uploadFilesLimit: -1 })).toThrow(
+      "uploadFilesLimit must be a nonnegative integer",
+    );
+    const app = await NestFactory.create(
+      uploadModule({ FileInterceptor, FilesInterceptor }),
+      new NodeHttpAdapter({
+        uploadLimit: 1024 * 1024,
+        uploadFileLimit: 200_000,
+        uploadFilesLimit: 2,
+      }),
+      { logger: false },
+    );
+    apps.push(app);
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+
+    const withinFileLimit = new FormData();
+    withinFileLimit.append("avatar", new Blob(["x".repeat(200_000)]), "within-limit.bin");
+    const accepted = await fetch(`${base}/upload/one`, {
+      method: "POST",
+      body: withinFileLimit,
+    });
+    expect(accepted.status).toBe(201);
+    await accepted.arrayBuffer();
+
+    const overFileLimit = new FormData();
+    overFileLimit.append("avatar", new Blob(["x".repeat(200_001)]), "too-large.bin");
+    const rejectedFile = await fetch(`${base}/upload/one`, {
+      method: "POST",
+      body: overFileLimit,
+    });
+    expect(rejectedFile.status).toBe(413);
+    await rejectedFile.arrayBuffer();
+
+    const overFilesLimit = new FormData();
+    for (const name of ["a", "b", "c"])
+      overFilesLimit.append("docs", new Blob([name]), `${name}.txt`);
+    const rejectedCount = await fetch(`${base}/upload/many`, {
+      method: "POST",
+      body: overFilesLimit,
+    });
+    expect(rejectedCount.status).toBe(413);
+    await rejectedCount.arrayBuffer();
   });
   it("renders views with Express-compatible engines", async () => {
     const dir = join(process.cwd(), ".tmp-views");

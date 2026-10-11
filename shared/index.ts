@@ -67,6 +67,10 @@ export interface NativeAdapterOptions {
   bodyLimit?: number;
   /** Limit for multipart bodies (file uploads); defaults to `bodyLimit`. */
   uploadLimit?: number;
+  /** Maximum size of one multipart file; defaults to `uploadLimit`. */
+  uploadFileLimit?: number;
+  /** Maximum number of files in one multipart body; unlimited when omitted. */
+  uploadFilesLimit?: number;
   /** Stream multipart file parts into temporary files instead of buffering them in memory. */
   uploadStorage?: { directory?: string };
   shutdownTimeout?: number;
@@ -128,6 +132,18 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       (!Number.isSafeInteger(options.uploadLimit) || options.uploadLimit <= 0)
     ) {
       throw new Error("uploadLimit must be a positive integer.");
+    }
+    if (
+      options.uploadFileLimit !== undefined &&
+      (!Number.isSafeInteger(options.uploadFileLimit) || options.uploadFileLimit <= 0)
+    ) {
+      throw new Error("uploadFileLimit must be a positive integer.");
+    }
+    if (
+      options.uploadFilesLimit !== undefined &&
+      (!Number.isSafeInteger(options.uploadFilesLimit) || options.uploadFilesLimit < 0)
+    ) {
+      throw new Error("uploadFilesLimit must be a nonnegative integer.");
     }
     if (
       options.uploadStorage !== undefined &&
@@ -377,6 +393,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   ): Handler {
     const read = this.readBody.bind(this);
     const uploadLimit = this.adapterOptions.uploadLimit ?? limit;
+    const uploadFileLimit = this.adapterOptions.uploadFileLimit ?? uploadLimit;
+    const uploadFilesLimit = this.adapterOptions.uploadFilesLimit;
     return (req, res, next) => {
       // A body set by an earlier parser is left alone.
       if (!isParsedMethod(req.method) || req.body !== undefined) return next();
@@ -387,6 +405,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
           req,
           uploadLimit,
           this.adapterOptions.uploadStorage.directory,
+          uploadFileLimit,
+          uploadFilesLimit,
         ).then(({ body, files, cleanup }) => {
           req.body = body;
           req.uploads = files;
@@ -404,6 +424,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
         kind === "multipart" ? uploadLimit : limit,
         rawBody,
         read,
+        kind === "multipart" ? { fileSize: uploadFileLimit, files: uploadFilesLimit } : undefined,
       ).then(() => next());
     };
   }

@@ -1,10 +1,19 @@
 import { ExpressAdapter } from "@nestjs/platform-express";
-import { Body, Controller, Module, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Module,
+  Post,
+  UploadedFile,
+  UploadedFiles,
+  UseInterceptors,
+} from "@nestjs/common";
 import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import {
   BunHttpAdapter,
   BunWsAdapter,
   FileInterceptor,
+  FilesInterceptor,
   type DiskUploadedFileData,
 } from "nestjs-adapter-bun";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
@@ -31,6 +40,12 @@ class StreamingUploadController {
       path: file.path,
       body,
     };
+  }
+
+  @Post("many")
+  @UseInterceptors(FilesInterceptor("upload"))
+  many(@UploadedFiles() files: DiskUploadedFileData[]) {
+    return files.map(({ originalname }) => originalname);
   }
 }
 @Module({ controllers: [StreamingUploadController] })
@@ -130,6 +145,8 @@ if (spawnSync("openssl", ["version"]).error) {
   const directory = mkdtempSync(join(tmpdir(), "native-bun-upload-"));
   const adapter = new BunHttpAdapter({
     uploadLimit: 2 * 1024 * 1024,
+    uploadFileLimit: 512 * 1024,
+    uploadFilesLimit: 1,
     uploadStorage: { directory },
   });
   const uploadApp = await NestFactory.create(StreamingUploadModule, adapter, { logger: false });
@@ -137,7 +154,7 @@ if (spawnSync("openssl", ["version"]).error) {
     await uploadApp.init();
     const form = new FormData();
     form.append("note", "streamed");
-    form.append("upload", new Blob(["x".repeat(1024 * 1024)]), "large.bin");
+    form.append("upload", new Blob(["x".repeat(256 * 1024)]), "large.bin");
     const response = await adapter.fetch(
       new Request("http://localhost/stream-upload", { method: "POST", body: form }),
     );
@@ -150,7 +167,7 @@ if (spawnSync("openssl", ["version"]).error) {
     };
     assert.deepEqual(uploaded, {
       filename: "large.bin",
-      size: 1024 * 1024,
+      size: 256 * 1024,
       path: uploaded.path,
       body: { note: "streamed" },
     });
@@ -161,6 +178,23 @@ if (spawnSync("openssl", ["version"]).error) {
       if (!cleaned) await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.equal(cleaned, true, "temporary multipart files should be removed after the response");
+
+    const tooLarge = new FormData();
+    tooLarge.append("upload", new Blob(["x".repeat(600 * 1024)]), "too-large.bin");
+    const fileLimitResponse = await adapter.fetch(
+      new Request("http://localhost/stream-upload", { method: "POST", body: tooLarge }),
+    );
+    assert.equal(fileLimitResponse.status, 413);
+    assert.deepEqual(readdirSync(directory), []);
+
+    const tooMany = new FormData();
+    tooMany.append("upload", new Blob(["one"]), "one.bin");
+    tooMany.append("upload", new Blob(["two"]), "two.bin");
+    const filesLimitResponse = await adapter.fetch(
+      new Request("http://localhost/stream-upload/many", { method: "POST", body: tooMany }),
+    );
+    assert.equal(filesLimitResponse.status, 413);
+    assert.deepEqual(readdirSync(directory), []);
   } finally {
     await uploadApp.close();
     rmSync(directory, { recursive: true, force: true });

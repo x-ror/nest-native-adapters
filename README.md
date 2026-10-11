@@ -87,18 +87,24 @@ For large multipart uploads, opt into temporary disk-backed streaming:
 ```ts
 new NodeHttpAdapter({
   uploadLimit: 10 * 1024 * 1024,
+  uploadFileLimit: 5 * 1024 * 1024,
+  uploadFilesLimit: 4,
   uploadStorage: { directory: "/var/tmp/my-app-uploads" },
 });
 ```
 
-Use the same options with `BunHttpAdapter`. The directory must already exist
-and be writable. Multipart fields are parsed as usual, but files are exposed
-through `@UploadedFile()` / `@UploadedFiles()` as `DiskUploadedFileData`
-(`path`, `destination`, `filename`, and metadata; no `buffer`). Temporary files
-are removed after the response completes. Move or copy a file from the
-controller if it must persist. Without `uploadStorage`, existing in-memory
-behavior is unchanged. With Nest's `rawBody` option, uploads use the in-memory
-path so `rawBody` can retain the complete request.
+Use the same options with `BunHttpAdapter`. `uploadFileLimit` defaults to
+`uploadLimit`; `uploadFilesLimit` is unlimited when omitted. Exceeding either
+limit returns `413`. In disk mode, limits are enforced while parsing and
+streaming. The configured directory must already exist and be writable.
+Multipart fields are parsed as usual, but files are exposed through
+`@UploadedFile()` / `@UploadedFiles()` as `DiskUploadedFileData` (`path`,
+`destination`, `filename`, and metadata; no `buffer`). Temporary files are
+removed after the response completes. Move or copy a file from the controller
+if it must persist. Without `uploadStorage`, existing in-memory behavior is
+unchanged; per-file limits are checked after buffering, bounded by
+`uploadLimit`. With Nest's `rawBody` option, uploads use the in-memory path so
+`rawBody` can retain the complete request.
 
 These are **not drop-in Express plugin adapters**. `@Req()` exposes a
 `NativeRequest` with `.raw` (a web `Request`) and Nest's usual data fields.
@@ -239,7 +245,8 @@ transport-specific code before replacing the platform adapter:
   and are removed after the response. Move/copy files that need to persist.
   Both paths are bounded by `uploadLimit`, which defaults to `bodyLimit`.
   Without disk storage, files stay on `@Body()` as Web `File` objects.
-  Multer's `fileFilter` and per-file interceptor limits are not supported.
+  Configure adapter-wide `uploadFileLimit` and `uploadFilesLimit`; Multer's
+  `fileFilter` and per-interceptor limits are not supported.
 - Keep `app.enableCors(...)` as is; the options and resulting headers match
   the `cors` package. Keep `cookie-parser` if middleware or guards read
   `req.cookies`; `res.cookie()` and `res.clearCookie()` behave as on Express.
