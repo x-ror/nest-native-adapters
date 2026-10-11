@@ -51,6 +51,17 @@ class StreamingUploadController {
 @Module({ controllers: [StreamingUploadController] })
 class StreamingUploadModule {}
 
+@Controller("memory-upload")
+class MemoryUploadController {
+  @Post()
+  @UseInterceptors(FileInterceptor("upload"))
+  receive(@UploadedFile() file: { size: number }) {
+    return { size: file.size };
+  }
+}
+@Module({ controllers: [MemoryUploadController] })
+class MemoryUploadModule {}
+
 await compareAdapters(
   () => new BunHttpAdapter(),
   () => new ExpressAdapter(),
@@ -200,6 +211,43 @@ if (spawnSync("openssl", ["version"]).error) {
     rmSync(directory, { recursive: true, force: true });
   }
   console.log("native-bun: multipart file streaming to temporary storage passed.");
+}
+
+{
+  const adapter = new BunHttpAdapter({
+    uploadLimit: 2 * 1024 * 1024,
+    uploadFileLimit: 512 * 1024,
+    uploadFilesLimit: 1,
+  });
+  const uploadApp = await NestFactory.create(MemoryUploadModule, adapter, { logger: false });
+  try {
+    await uploadApp.init();
+    const form = new FormData();
+    form.append("upload", new Blob(["x".repeat(256 * 1024)]), "within-limit.bin");
+    const accepted = await adapter.fetch(
+      new Request("http://localhost/memory-upload", { method: "POST", body: form }),
+    );
+    assert.equal(accepted.status, 201);
+    assert.deepEqual(await accepted.json(), { size: 256 * 1024 });
+
+    const tooLarge = new FormData();
+    tooLarge.append("upload", new Blob(["x".repeat(600 * 1024)]), "too-large.bin");
+    const fileLimitResponse = await adapter.fetch(
+      new Request("http://localhost/memory-upload", { method: "POST", body: tooLarge }),
+    );
+    assert.equal(fileLimitResponse.status, 413);
+
+    const tooMany = new FormData();
+    tooMany.append("upload", new Blob(["one"]), "one.bin");
+    tooMany.append("upload", new Blob(["two"]), "two.bin");
+    const filesLimitResponse = await adapter.fetch(
+      new Request("http://localhost/memory-upload", { method: "POST", body: tooMany }),
+    );
+    assert.equal(filesLimitResponse.status, 413);
+  } finally {
+    await uploadApp.close();
+  }
+  console.log("native-bun: in-memory multipart file size and count limits passed.");
 }
 
 const adapter = new BunHttpAdapter();

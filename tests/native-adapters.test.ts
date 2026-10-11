@@ -357,11 +357,7 @@ describe("native Nest adapters", () => {
       await expect(readFile(uploaded.path)).rejects.toMatchObject({ code: "ENOENT" });
 
       const fileTooLarge = new FormData();
-      fileTooLarge.append(
-        "upload",
-        new Blob(["x".repeat(fileLimit + 1)]),
-        "per-file-limit.bin",
-      );
+      fileTooLarge.append("upload", new Blob(["x".repeat(fileLimit + 1)]), "per-file-limit.bin");
       const fileLimitResponse = await fetch(`${await app.getUrl()}/stream-upload`, {
         method: "POST",
         body: fileTooLarge,

@@ -54,7 +54,7 @@ export async function parseDiskMultipart(
       headers: Object.fromEntries(headers) as Record<string, string>,
       limits: {
         fieldSize: limit,
-        fileSize: fileSizeLimit,
+        fileSize: fileSizeLimit < Number.MAX_SAFE_INTEGER ? fileSizeLimit + 1 : fileSizeLimit,
         ...(filesLimit === undefined ? {} : { files: filesLimit }),
       },
     });
@@ -99,15 +99,13 @@ export async function parseDiskMultipart(
         callback(null, chunk);
       },
     });
-    stream.once("limit", () => {
-      limitError ??= new PayloadTooLargeException();
-    });
     const write = pipeline(
       stream,
       counter,
       createWriteStream(path, { flags: "wx", mode: 0o600 }),
     ).then(() => {
       file.size = size;
+      if (size > fileSizeLimit) limitError ??= new PayloadTooLargeException();
     });
     fileWrites.push(write);
     void write.catch((error: unknown) => {
