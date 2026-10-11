@@ -13,7 +13,10 @@ for (const name of ["platform-node", "platform-bun"]) {
   assert.ok(manifest.peerDependencies["@nestjs/common"]);
   assert.ok(manifest.peerDependencies["@nestjs/core"]);
   for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-    assert.ok(dependency === "path-to-regexp", `${name}: unexpected dependency ${dependency}`);
+    assert.ok(
+      dependency === "path-to-regexp" || dependency === "busboy",
+      `${name}: unexpected dependency ${dependency}`,
+    );
   }
   for (const field of ["description", "repository", "homepage", "bugs", "engines", "keywords"]) {
     assert.ok(manifest[field], `${name}: package.json needs "${field}"`);

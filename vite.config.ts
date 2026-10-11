@@ -32,7 +32,7 @@ export default defineConfig({
       alias: sharedAliases,
       dts: true,
       sourcemap: true,
-      deps: { neverBundle: [/^nestjs-adapter-/, /^@nestjs\//, "path-to-regexp"] },
+      deps: { neverBundle: [/^nestjs-adapter-/, /^@nestjs\//, "busboy", "path-to-regexp"] },
     })),
     {
       name: "example",
@@ -44,7 +44,7 @@ export default defineConfig({
       alias: aliases,
       deps: {
         alwaysBundle: [/^nestjs-adapter-/],
-        neverBundle: [/^@nestjs\//, "rxjs", "reflect-metadata", "path-to-regexp"],
+        neverBundle: [/^@nestjs\//, "busboy", "rxjs", "reflect-metadata", "path-to-regexp"],
       },
       dts: false,
       sourcemap: true,
@@ -66,6 +66,7 @@ export default defineConfig({
           /^@nestjs\//,
           /^@?socket\.io/,
           "cookie-parser",
+          "busboy",
           "reflect-metadata",
           "rxjs",
         ],

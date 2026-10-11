@@ -38,6 +38,7 @@
     "provenance": true
   },
   "dependencies": {
+    "busboy": "^1.6.0",
     "path-to-regexp": "catalog:"
   },
   "peerDependencies": {

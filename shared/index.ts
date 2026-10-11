@@ -30,6 +30,7 @@ import {
   type NativeRequest,
 } from "./request.js";
 import { NativeResponse } from "./response.js";
+import { parseDiskMultipart } from "./multipart.js";
 import { compileTrust, type TrustFunction, type TrustProxy } from "./proxy.js";
 import { serveStatic, type StaticAssetsOptions } from "./static.js";
 
@@ -39,6 +40,8 @@ export {
   FileFieldsInterceptor,
   FileInterceptor,
   FilesInterceptor,
+  type DiskUploadedFileData,
+  type UploadedFile,
   type UploadedFileData,
 } from "./uploads.js";
 export {
@@ -48,6 +51,7 @@ export {
   parseQuery,
   subdomainsOf,
   type ClientConnection,
+  type DiskUploadFile,
 } from "./request.js";
 export type { StaticAssetsOptions } from "./static.js";
 export {
@@ -63,6 +67,8 @@ export interface NativeAdapterOptions {
   bodyLimit?: number;
   /** Limit for multipart bodies (file uploads); defaults to `bodyLimit`. */
   uploadLimit?: number;
+  /** Stream multipart file parts into temporary files instead of buffering them in memory. */
+  uploadStorage?: { directory?: string };
   shutdownTimeout?: number;
   /**
    * Express's `trust proxy` setting, which decides when `X-Forwarded-For`,
@@ -122,6 +128,16 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       (!Number.isSafeInteger(options.uploadLimit) || options.uploadLimit <= 0)
     ) {
       throw new Error("uploadLimit must be a positive integer.");
+    }
+    if (
+      options.uploadStorage !== undefined &&
+      (options.uploadStorage === null ||
+        typeof options.uploadStorage !== "object" ||
+        (options.uploadStorage.directory !== undefined &&
+          (typeof options.uploadStorage.directory !== "string" ||
+            options.uploadStorage.directory.length === 0)))
+    ) {
+      throw new Error("uploadStorage.directory must be a nonempty path.");
     }
     if (
       options.shutdownTimeout !== undefined &&
@@ -361,11 +377,27 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   ): Handler {
     const read = this.readBody.bind(this);
     const uploadLimit = this.adapterOptions.uploadLimit ?? limit;
-    return (req, _res, next) => {
+    return (req, res, next) => {
       // A body set by an earlier parser is left alone.
       if (!isParsedMethod(req.method) || req.body !== undefined) return next();
       const kind = kindOf(mediaType(req.headers["content-type"]));
       if (kind === undefined) return next();
+      if (kind === "multipart" && this.adapterOptions.uploadStorage && !rawBody) {
+        return parseDiskMultipart(
+          req,
+          uploadLimit,
+          this.adapterOptions.uploadStorage.directory,
+        ).then(({ body, files, cleanup }) => {
+          req.body = body;
+          req.uploads = files;
+          res.once("close", () => {
+            void cleanup().catch((error: unknown) =>
+              console.error("Temporary multipart upload cleanup failed", error),
+            );
+          });
+          next();
+        }, next);
+      }
       return parseRequestBody(
         req,
         kind,

@@ -20,27 +20,27 @@ Fastify a benchmark-only one.
 
 ## Compatibility matrix
 
-| Capability                                           | Node adapter | Bun adapter   | Notes                                                        |
-| ---------------------------------------------------- | ------------ | ------------- | ------------------------------------------------------------ |
-| Nest baseline                                        | Verified     | Verified      | NestJS 12.1.2; other versions are unverified                 |
-| Runtime                                              | Node.js 22+  | Current Bun   | Bun uses `Bun.serve`                                         |
-| Routing, middleware, guards, pipes, interceptors, DI | Supported    | Supported     | Shared adapter implementation                                |
-| JSON and nested URL-encoded bodies                   | Supported    | Supported     | Parsed body limit defaults to 100 KiB                        |
-| Multipart forms                                      | Supported    | Supported     | Files are native `File` values on `@Body()`                  |
-| CORS                                                 | Supported    | Supported     | Same options and headers as `cors` (Express)                 |
-| Trusted proxies (`X-Forwarded-*`)                    | Supported    | Supported     | Express's `trust proxy`: `ip`, `ips`, `protocol`, `hostname` |
-| Cookies                                              | Supported    | Supported     | Nest's cookie API, `res.cookie()`, `cookie-parser`           |
-| Static assets                                        | Supported    | Supported     | `express.static` options, validators and byte ranges         |
-| Text, raw and custom-type bodies                     | Supported    | Supported     | Opt in with `app.useBodyParser(...)`                         |
-| Header, media-type and custom versioning             | Supported    | Supported     | Same per-handler matching as Nest's Express adapter          |
-| Nest `@Sse()`                                        | Supported    | Supported     | Observable `MessageEvent` stream                             |
-| Streamed responses with `res.write()`                | Supported    | Supported     | Chunked; headers are sent on the first write                 |
-| Response events (`res.on("finish")`)                 | Supported    | Supported     | `finish` and `close`; Node forwards to `ServerResponse`      |
-| TLS / HTTPS                                          | Supported    | Supported     | Nest `httpsOptions`; Bun reads key, cert, ca and passphrase  |
-| WebSocket gateways                                   | Supported    | Supported     | Node: Nest's `WsAdapter`; Bun: `BunWsAdapter`                |
-| Socket.IO gateways                                   | Supported    | Not supported | Automatic on Node; under Bun use the Node adapter            |
-| File upload interceptors                             | Supported    | Supported     | `FileInterceptor` and friends; memory storage only           |
-| MVC (`@Render()`)                                    | Supported    | Supported     | Express-compatible engines (`ejs`, `pug`, `hbs`)             |
+| Capability                                           | Node adapter | Bun adapter   | Notes                                                                                      |
+| ---------------------------------------------------- | ------------ | ------------- | ------------------------------------------------------------------------------------------ |
+| Nest baseline                                        | Verified     | Verified      | NestJS 12.1.2; other versions are unverified                                               |
+| Runtime                                              | Node.js 22+  | Current Bun   | Bun uses `Bun.serve`                                                                       |
+| Routing, middleware, guards, pipes, interceptors, DI | Supported    | Supported     | Shared adapter implementation                                                              |
+| JSON and nested URL-encoded bodies                   | Supported    | Supported     | Parsed body limit defaults to 100 KiB                                                      |
+| Multipart forms                                      | Supported    | Supported     | Files are native `File` values on `@Body()` by default; opt-in disk streaming is available |
+| CORS                                                 | Supported    | Supported     | Same options and headers as `cors` (Express)                                               |
+| Trusted proxies (`X-Forwarded-*`)                    | Supported    | Supported     | Express's `trust proxy`: `ip`, `ips`, `protocol`, `hostname`                               |
+| Cookies                                              | Supported    | Supported     | Nest's cookie API, `res.cookie()`, `cookie-parser`                                         |
+| Static assets                                        | Supported    | Supported     | `express.static` options, validators and byte ranges                                       |
+| Text, raw and custom-type bodies                     | Supported    | Supported     | Opt in with `app.useBodyParser(...)`                                                       |
+| Header, media-type and custom versioning             | Supported    | Supported     | Same per-handler matching as Nest's Express adapter                                        |
+| Nest `@Sse()`                                        | Supported    | Supported     | Observable `MessageEvent` stream                                                           |
+| Streamed responses with `res.write()`                | Supported    | Supported     | Chunked; headers are sent on the first write                                               |
+| Response events (`res.on("finish")`)                 | Supported    | Supported     | `finish` and `close`; Node forwards to `ServerResponse`                                    |
+| TLS / HTTPS                                          | Supported    | Supported     | Nest `httpsOptions`; Bun reads key, cert, ca and passphrase                                |
+| WebSocket gateways                                   | Supported    | Supported     | Node: Nest's `WsAdapter`; Bun: `BunWsAdapter`                                              |
+| Socket.IO gateways                                   | Supported    | Not supported | Automatic on Node; under Bun use the Node adapter                                          |
+| File upload interceptors                             | Supported    | Supported     | Memory storage by default; opt-in temporary disk streaming                                 |
+| MVC (`@Render()`)                                    | Supported    | Supported     | Express-compatible engines (`ejs`, `pug`, `hbs`)                                           |
 
 ## Usage
 
@@ -69,8 +69,9 @@ middleware, JSON, nested URL-encoded and multipart form bodies, raw bodies,
 status/headers/cookies/redirects, HEAD/no-content responses, `StreamableFile`,
 Nest `@Sse()` routes returning Observables, and Nest's standard request pipeline.
 Repeated form fields become arrays, bracket notation creates nested
-objects/arrays, and multipart file fields are exposed as native `File` values on
-`@Body()`. Route matching is case-sensitive.
+objects/arrays, and multipart file fields are exposed as native `File` values
+on `@Body()` by default. Opt-in disk-backed streaming exposes files through
+Nest's upload interceptors instead. Route matching is case-sensitive.
 
 Text, raw and extra JSON/URL-encoded media types are opt-in:
 `app.useBodyParser("text")`, `app.useBodyParser("raw", { limit: "1mb" })` or
@@ -80,6 +81,24 @@ exact media types, `text/*`-style prefixes or `*/*`.
 The default parsed-body limit is 100 KiB; configure `new NodeHttpAdapter({
 bodyLimit: 1024 * 1024 })` or the same option on Bun. `shutdownTimeout` defaults
 to 5000 ms, after which outstanding connections are forcibly closed.
+
+For large multipart uploads, opt into temporary disk-backed streaming:
+
+```ts
+new NodeHttpAdapter({
+  uploadLimit: 10 * 1024 * 1024,
+  uploadStorage: { directory: "/var/tmp/my-app-uploads" },
+});
+```
+
+Use the same options with `BunHttpAdapter`. The directory must already exist
+and be writable. Multipart fields are parsed as usual, but files are exposed
+through `@UploadedFile()` / `@UploadedFiles()` as `DiskUploadedFileData`
+(`path`, `destination`, `filename`, and metadata; no `buffer`). Temporary files
+are removed after the response completes. Move or copy a file from the
+controller if it must persist. Without `uploadStorage`, existing in-memory
+behavior is unchanged. With Nest's `rawBody` option, uploads use the in-memory
+path so `rawBody` can retain the complete request.
 
 These are **not drop-in Express plugin adapters**. `@Req()` exposes a
 `NativeRequest` with `.raw` (a web `Request`) and Nest's usual data fields.
@@ -213,11 +232,14 @@ transport-specific code before replacing the platform adapter:
 - Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
   `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
   adapter package instead of `@nestjs/platform-express`. Files have Multer's
-  memory-storage shape (`originalname`, `mimetype`, `size`, `buffer`). Multer
-  options (disk storage, `fileFilter`, per-file limits) are not supported;
-  uploads are held in memory and bounded by the adapter's `uploadLimit`, which
-  defaults to `bodyLimit`. Without an interceptor, files stay on `@Body()` as
-  Web `File` objects.
+  memory-storage shape (`originalname`, `mimetype`, `size`, `buffer`) by
+  default. For large uploads, configure `uploadStorage` on the adapter to stream
+  file parts into temporary files; intercepted files then have the
+  `DiskUploadedFileData` shape (`path`, `destination`, `filename`, no `buffer`)
+  and are removed after the response. Move/copy files that need to persist.
+  Both paths are bounded by `uploadLimit`, which defaults to `bodyLimit`.
+  Without disk storage, files stay on `@Body()` as Web `File` objects.
+  Multer's `fileFilter` and per-file interceptor limits are not supported.
 - Keep `app.enableCors(...)` as is; the options and resulting headers match
   the `cors` package. Keep `cookie-parser` if middleware or guards read
   `req.cookies`; `res.cookie()` and `res.clearCookie()` behave as on Express.
@@ -406,8 +428,12 @@ Other integrations can share the Bun server through
 
 ### Operational notes
 
-- Multipart uploads are parsed into in-memory native `File` values and are
-  subject to `bodyLimit`; the adapter does not spool uploaded files to disk.
+- Multipart forms use in-memory native `File` values by default. Set
+  `uploadStorage: { directory }` on either adapter to stream file parts into
+  per-request temporary directories; `uploadLimit` bounds the complete
+  multipart payload in both modes. Disk-backed files are automatically removed
+  after the response, so move/copy them during the handler if they need to
+  persist. Nest's `rawBody` mode retains the in-memory parser path.
 - Static files are read from disk as they are sent, not buffered. Restrict
   the configured root to public assets; a CDN still suits high-volume delivery.
 - For SSE behind Nginx, keep response buffering disabled for the SSE location

@@ -14,6 +14,9 @@ First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.
   Nest: routing, middleware, guards, pipes, interceptors, filters and DI.
 - JSON, URL-encoded and multipart bodies, opt-in text/raw parsers, raw bodies,
   `FileInterceptor` and friends with Multer's memory-storage file shape.
+- Opt-in disk-backed streaming for multipart file parts via `uploadStorage`,
+  with temporary files exposed through `DiskUploadedFileData` and removed
+  after the response completes.
 - All Nest versioning types, native HTTPS via `httpsOptions`, `@Sse()`,
   `res.write()` streaming, `@Render()` with Express-compatible engines,
   WebSocket gateways (Node: Nest's adapters; Bun: `BunWsAdapter`).

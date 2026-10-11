@@ -10,8 +10,10 @@ history, not active workspace packages.
 - Bun uses `Bun.serve`, not `node:http` running under Bun. Its native server is
   wrapped only for Nest's event/address listen contract.
 - Requests and responses use the supported fields/APIs documented in README.
-  Express plugins, Multer options beyond memory storage and WebSocket
-  namespaces remain outside the implementation. Nest `@Sse()` Observable
+  Express plugins, Multer's `fileFilter` and per-file options, and WebSocket
+  namespaces remain outside the implementation. Multipart files use memory
+  storage by default; `uploadStorage` opts into bounded temporary disk streaming.
+  Nest `@Sse()` Observable
   routes, `res.write()` streaming, opt-in text/raw body parsers, all Nest
   versioning types, native HTTPS via `httpsOptions` and response events are
   supported on both runtimes; on Bun, `finish` means the body was handed to
@@ -19,7 +21,8 @@ history, not active workspace packages.
   only through Express's `trust proxy` semantics (`trustProxy` option or
   `app.set("trust proxy")`), off by default. Of Express's settings, only
   `trust proxy` and `subdomain offset` have an effect. Multipart files are
-  native `File` values in `@Body()`. Static files follow `express.static()`
+  native `File` values in `@Body()` by default; opt-in `uploadStorage` exposes
+  disk-backed files through Nest's upload interceptors. Static files follow `express.static()`
   (serve-static and send), except that content types come from a built-in
   table of common web types, and on Bun a full response to a request with a
   `Range` header is sent without `Content-Length` above 1 MiB. CORS mirrors the `cors` package used by

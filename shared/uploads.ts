@@ -6,6 +6,7 @@ import {
   type NestInterceptor,
   type Type,
 } from "@nestjs/common";
+import type { DiskUploadFile } from "./request.js";
 
 /** An uploaded file in the shape Multer's memory storage produces. */
 export interface UploadedFileData {
@@ -16,40 +17,52 @@ export interface UploadedFileData {
   size: number;
   buffer: Buffer;
 }
+export type DiskUploadedFileData = DiskUploadFile;
+export type UploadedFile = UploadedFileData | DiskUploadedFileData;
 interface UploadRequest {
   body?: unknown;
-  file?: UploadedFileData;
-  files?: UploadedFileData[] | Record<string, UploadedFileData[]>;
+  file?: UploadedFile;
+  files?: UploadedFile[] | Record<string, UploadedFile[]>;
+  uploads?: DiskUploadFile[];
 }
 
 // Moves the files of one top-level field out of the parsed multipart body.
 async function takeFiles(
+  request: UploadRequest,
   body: Record<string, unknown>,
   field: string,
-): Promise<UploadedFileData[]> {
+): Promise<UploadedFile[]> {
+  const diskFiles = request.uploads?.filter((file) => file.fieldname === field) ?? [];
   const value = body[field];
   const entries = Array.isArray(value) ? value : [value];
   const files = entries.filter((entry): entry is File => entry instanceof File);
-  if (!files.length) return [];
+  if (!files.length) return diskFiles;
   const rest = entries.filter((entry) => !(entry instanceof File));
   if (rest.length) body[field] = rest.length === 1 ? rest[0] : rest;
   else delete body[field];
-  return Promise.all(
-    files.map(async (file) => ({
-      fieldname: field,
-      originalname: file.name,
-      encoding: "7bit",
-      mimetype: file.type.split(";")[0]!,
-      size: file.size,
-      buffer: Buffer.from(await file.arrayBuffer()),
-    })),
-  );
+  return [
+    ...diskFiles,
+    ...(await Promise.all(
+      files.map(async (file) => ({
+        fieldname: field,
+        originalname: file.name,
+        encoding: "7bit",
+        mimetype: file.type.split(";")[0]!,
+        size: file.size,
+        buffer: Buffer.from(await file.arrayBuffer()),
+      })),
+    )),
+  ];
 }
 
-function fileFields(body: Record<string, unknown>): string[] {
-  return Object.keys(body).filter((field) =>
+function fileFields(request: UploadRequest, body: Record<string, unknown>): string[] {
+  const fields = Object.keys(body).filter((field) =>
     ([] as unknown[]).concat(body[field]).some((entry) => entry instanceof File),
   );
+  for (const file of request.uploads ?? []) {
+    if (!fields.includes(file.fieldname)) fields.push(file.fieldname);
+  }
+  return fields;
 }
 
 function uploadInterceptor(
@@ -68,16 +81,16 @@ function uploadInterceptor(
   );
 }
 
-function reject(body: Record<string, unknown>, allowed: string[]): void {
-  const unexpected = fileFields(body).find((field) => !allowed.includes(field));
+function reject(request: UploadRequest, body: Record<string, unknown>, allowed: string[]): void {
+  const unexpected = fileFields(request, body).find((field) => !allowed.includes(field));
   if (unexpected !== undefined) throw new BadRequestException(`Unexpected field - ${unexpected}`);
 }
 
 /** Like Multer's `FileInterceptor`: one file from `fieldName` for `@UploadedFile()`. */
 export function FileInterceptor(fieldName: string): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
-    reject(body, [fieldName]);
-    const files = await takeFiles(body, fieldName);
+    reject(request, body, [fieldName]);
+    const files = await takeFiles(request, body, fieldName);
     if (files.length > 1) throw new BadRequestException(`Unexpected field - ${fieldName}`);
     request.file = files[0];
   });
@@ -86,8 +99,8 @@ export function FileInterceptor(fieldName: string): Type<NestInterceptor> {
 /** Like Multer's `FilesInterceptor`: every file from `fieldName` for `@UploadedFiles()`. */
 export function FilesInterceptor(fieldName: string, maxCount = Infinity): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
-    reject(body, [fieldName]);
-    const files = await takeFiles(body, fieldName);
+    reject(request, body, [fieldName]);
+    const files = await takeFiles(request, body, fieldName);
     if (files.length > maxCount) throw new BadRequestException(`Too many files - ${fieldName}`);
     request.files = files;
   });
@@ -99,12 +112,13 @@ export function FileFieldsInterceptor(
 ): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
     reject(
+      request,
       body,
       fields.map((field) => field.name),
     );
-    const grouped: Record<string, UploadedFileData[]> = {};
+    const grouped: Record<string, UploadedFile[]> = {};
     for (const { name, maxCount = Infinity } of fields) {
-      const files = await takeFiles(body, name);
+      const files = await takeFiles(request, body, name);
       if (files.length > maxCount) throw new BadRequestException(`Too many files - ${name}`);
       if (files.length) grouped[name] = files;
     }
@@ -115,8 +129,9 @@ export function FileFieldsInterceptor(
 /** Like Multer's `AnyFilesInterceptor`: every uploaded file, whatever its field. */
 export function AnyFilesInterceptor(): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
-    const files: UploadedFileData[] = [];
-    for (const field of fileFields(body)) files.push(...(await takeFiles(body, field)));
+    const files: UploadedFile[] = [];
+    for (const field of fileFields(request, body))
+      files.push(...(await takeFiles(request, body, field)));
     request.files = files;
   });
 }

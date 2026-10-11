@@ -1,12 +1,17 @@
 import { ExpressAdapter } from "@nestjs/platform-express";
-import { Module } from "@nestjs/common";
+import { Body, Controller, Module, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
-import { BunHttpAdapter, BunWsAdapter } from "nestjs-adapter-bun";
+import {
+  BunHttpAdapter,
+  BunWsAdapter,
+  FileInterceptor,
+  type DiskUploadedFileData,
+} from "nestjs-adapter-bun";
 import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { io as connect } from "socket.io-client";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { connect as connectSocket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +19,17 @@ import { NestFactory } from "@nestjs/core";
 import { compareAdapters, startFixture } from "./compare.js";
 import { checkLifecycle } from "./lifecycle.js";
 import { FixtureModule } from "./fixture.js";
+
+@Controller("stream-upload")
+class StreamingUploadController {
+  @Post()
+  @UseInterceptors(FileInterceptor("upload"))
+  receive(@UploadedFile() file: DiskUploadedFileData, @Body() body: Record<string, unknown>) {
+    return { filename: file.originalname, size: statSync(file.path).size, body };
+  }
+}
+@Module({ controllers: [StreamingUploadController] })
+class StreamingUploadModule {}
 
 await compareAdapters(
   () => new BunHttpAdapter(),
@@ -103,6 +119,34 @@ if (spawnSync("openssl", ["version"]).error) {
     rmSync(dir, { recursive: true, force: true });
   }
   console.log("native-bun: native HTTPS with httpsOptions passed.");
+}
+
+{
+  const directory = mkdtempSync(join(tmpdir(), "native-bun-upload-"));
+  const adapter = new BunHttpAdapter({
+    uploadLimit: 2 * 1024 * 1024,
+    uploadStorage: { directory },
+  });
+  const uploadApp = await NestFactory.create(StreamingUploadModule, adapter, { logger: false });
+  try {
+    await uploadApp.init();
+    const form = new FormData();
+    form.append("note", "streamed");
+    form.append("upload", new Blob(["x".repeat(1024 * 1024)]), "large.bin");
+    const response = await adapter.fetch(
+      new Request("http://localhost/stream-upload", { method: "POST", body: form }),
+    );
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), {
+      filename: "large.bin",
+      size: 1024 * 1024,
+      body: { note: "streamed" },
+    });
+  } finally {
+    await uploadApp.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+  console.log("native-bun: multipart file streaming to temporary storage passed.");
 }
 
 const adapter = new BunHttpAdapter();

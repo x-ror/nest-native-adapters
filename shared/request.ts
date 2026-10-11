@@ -33,6 +33,7 @@ export interface NativeRequest {
   query: Record<string, string | string[]>;
   body?: unknown;
   rawBody?: Buffer;
+  uploads?: DiskUploadFile[];
   /**
    * Set by `cookie-parser` when the application installs it, exactly as on
    * Express. Nest's `@Cookies()` and `@SignedCookies()` do not need it.
@@ -42,6 +43,17 @@ export interface NativeRequest {
   signedCookies?: Record<string, any>;
   /** The first secret given to `cookie-parser`, when it is installed. */
   secret?: string;
+}
+
+export interface DiskUploadFile {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+  size: number;
+  destination: string;
+  filename: string;
+  path: string;
 }
 
 // Prototype-free like new NullObject(), but stays a fast-mode V8 object:
@@ -80,7 +92,7 @@ export function parseQuery(search: string): Record<string, string | string[]> {
   return result;
 }
 
-function formFieldPath(key: string): string[] {
+export function formFieldPath(key: string): string[] {
   const rootEnd = key.indexOf("[");
   const root = rootEnd === -1 ? key : key.slice(0, rootEnd);
   if (!root) throw new BadRequestException("Invalid form field name");
@@ -99,7 +111,7 @@ function formFieldPath(key: string): string[] {
   return path;
 }
 
-function assignFormValue(target: unknown, path: string[], value: FormDataEntryValue): void {
+export function assignFormValue(target: unknown, path: string[], value: unknown): void {
   const [part, ...rest] = path;
   if (part === undefined) return;
   const isArray = Array.isArray(target);
@@ -160,7 +172,7 @@ function assignFormValue(target: unknown, path: string[], value: FormDataEntryVa
   assignFormValue(child, rest, value);
 }
 
-function nestedFormObject(
+export function nestedFormObject(
   entries: Iterable<[string, FormDataEntryValue]>,
 ): Record<string, unknown> {
   const result = new NullObject();

@@ -106,6 +106,9 @@ importers:
       '@types/bun':
         specifier: 'catalog:'
         version: 1.4.2
+      '@types/busboy':
+        specifier: ^1.5.5
+        version: 1.5.5
       '@types/cookie-parser':
         specifier: 'catalog:'
         version: 1.4.10(@types/express@5.0.6)
@@ -118,6 +121,9 @@ importers:
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.2
+      busboy:
+        specifier: ^1.6.0
+        version: 1.6.0
       cookie-parser:
         specifier: 'catalog:'
         version: 1.4.7
@@ -202,6 +208,9 @@ importers:
       '@nestjs/core':
         specifier: catalog:nest-peers
         version: 12.1.2(@nestjs/common@12.1.2(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.1.2)(@nestjs/websockets@12.1.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      busboy:
+        specifier: ^1.6.0
+        version: 1.6.0
       path-to-regexp:
         specifier: 'catalog:'
         version: 8.4.2
@@ -214,6 +223,9 @@ importers:
       '@nestjs/core':
         specifier: catalog:nest-peers
         version: 12.1.2(@nestjs/common@12.1.2(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@12.1.2)(@nestjs/websockets@12.1.2)(reflect-metadata@0.2.2)(rxjs@7.8.2)
+      busboy:
+        specifier: ^1.6.0
+        version: 1.6.0
       path-to-regexp:
         specifier: 'catalog:'
         version: 8.4.2
@@ -664,6 +676,9 @@ packages:
 
   '@types/bun@1.4.2':
     resolution: {integrity: sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ==}
+
+  '@types/busboy@1.5.5':
+    resolution: {integrity: sha512-IwqrfVFxWa23c4WeE7uZswssCqGfvnl5Q7b1pdshbT3HaQDa3UIbJx5BAxtcj9nZYX9tVDArM9TUv9SpvORbpQ==}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -2350,6 +2365,10 @@ snapshots:
   '@types/bun@1.4.2':
     dependencies:
       bun-types: 1.4.2
+
+  '@types/busboy@1.5.5':
+    dependencies:
+      '@types/node': 26.6.4
 
   '@types/chai@5.2.3':
     dependencies:

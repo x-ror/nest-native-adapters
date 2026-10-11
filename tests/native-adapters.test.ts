@@ -1,9 +1,10 @@
 import "reflect-metadata";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { get as httpsGet } from "node:https";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { inspect } from "node:util";
 import cookieParser from "cookie-parser";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -42,6 +43,7 @@ import {
   FilesInterceptor,
   NodeHttpAdapter,
   NativeResponse,
+  type DiskUploadedFileData,
   type NativeRequest,
   type UploadedFileData,
 } from "nestjs-adapter-node";
@@ -115,6 +117,34 @@ function uploadModule(interceptors: {
   @Module({ controllers: [UploadController] })
   class UploadModule {}
   return UploadModule;
+}
+
+function streamingUploadModule(fileInterceptor: (field: string) => Type<NestInterceptor>) {
+  @Controller("stream-upload")
+  class StreamingUploadController {
+    @Post()
+    @UseInterceptors(fileInterceptor("upload"))
+    async receive(
+      @UploadedFile() file: DiskUploadedFileData,
+      @Body() body: Record<string, unknown>,
+    ) {
+      const contents = await readFile(file.path, "utf8");
+      return {
+        fieldname: file.fieldname,
+        originalname: file.originalname,
+        encoding: file.encoding,
+        mimetype: file.mimetype,
+        size: file.size,
+        path: file.path,
+        destination: file.destination,
+        contentMatches: contents.startsWith("large streamed upload"),
+        body,
+      };
+    }
+  }
+  @Module({ controllers: [StreamingUploadController] })
+  class StreamingUploadModule {}
+  return StreamingUploadModule;
 }
 
 @Controller("pages")
@@ -281,6 +311,53 @@ describe("native Nest adapters", () => {
     const tooLarge = await fetch(`${base}/api/echo`, { method: "POST", body: oversized });
     expect(tooLarge.status).toBe(413);
     await tooLarge.arrayBuffer();
+  });
+  it("streams opt-in multipart uploads to temporary files and removes them after the response", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "native-upload-test-"));
+    const adapter = new NodeHttpAdapter({
+      uploadLimit: 3 * 1024 * 1024,
+      uploadStorage: { directory },
+    });
+    const app = await NestFactory.create(streamingUploadModule(FileInterceptor), adapter, {
+      logger: false,
+    });
+    try {
+      await app.listen(0, "127.0.0.1");
+      const form = new FormData();
+      const contents = `large streamed upload${"x".repeat(2 * 1024 * 1024)}`;
+      form.append("description", "disk-backed");
+      form.append("upload", new Blob([contents], { type: "text/plain" }), "large.txt");
+      const response = await fetch(`${await app.getUrl()}/stream-upload`, {
+        method: "POST",
+        body: form,
+      });
+      expect(response.status).toBe(201);
+      const uploaded = await response.json();
+      expect(uploaded).toMatchObject({
+        fieldname: "upload",
+        originalname: "large.txt",
+        encoding: "7bit",
+        mimetype: "text/plain",
+        size: contents.length,
+        contentMatches: true,
+        body: { description: "disk-backed" },
+      });
+      expect(uploaded.path).toContain(uploaded.destination);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await expect(readFile(uploaded.path)).rejects.toMatchObject({ code: "ENOENT" });
+
+      const oversized = new FormData();
+      oversized.append("upload", new Blob(["x".repeat(3 * 1024 * 1024 + 1)]), "too-large.bin");
+      const rejected = await fetch(`${await app.getUrl()}/stream-upload`, {
+        method: "POST",
+        body: oversized,
+      });
+      expect(rejected.status).toBe(413);
+      await rejected.arrayBuffer();
+    } finally {
+      await app.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
   it("streams Nest @Sse() Observable events as an event-stream response", async () => {
     const adapter = new NodeHttpAdapter();

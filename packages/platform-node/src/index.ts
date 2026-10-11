@@ -22,12 +22,15 @@ export {
   FileInterceptor,
   FilesInterceptor,
   NativeResponse,
+  type DiskUploadedFileData,
+  type UploadedFile,
 } from "@shared";
 
 export type {
   CookieWriter,
   NativeAdapterOptions,
   NativeRequest,
+  DiskUploadFile,
   ResponseCookieOptions,
   StaticAssetsOptions,
   TrustProxy,
