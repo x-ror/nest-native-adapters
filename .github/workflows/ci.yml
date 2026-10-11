@@ -32,3 +32,4 @@ jobs:
           bun-version: latest
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:bun
+      - run: pnpm run test:packed

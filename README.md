@@ -499,10 +499,13 @@ pnpm install
 pnpm run check
 pnpm run test
 pnpm run test:bun
+pnpm run test:packed
 pnpm bench
 pnpm run dev
 ```
 
+`test:packed` installs both built tarballs into a clean temporary Nest project,
+type-checks its public imports and runs a multipart upload on Node and Bun.
 `dev` watches the Node example; `vp run build` builds both example entrypoints.
 Run `bun dist/bun.js` for the Bun example. Both expose `/hello/world` on port 3000.
 Dependency versions live in `pnpm-workspace.yaml` catalogs. The pnpm version is pinned
