@@ -6,6 +6,14 @@ version and one changelog. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-11
+
+### Changed
+
+- Publish releases through npm Trusted Publishing (GitHub Actions OIDC)
+  without a long-lived npm token, with provenance attestations.
+- No adapter runtime or public API changes.
+
 ## [0.1.0] - 2026-10-11
 
 First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.

@@ -1,6 +1,6 @@
 {
   "name": "nestjs-adapter-bun",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native Bun.serve HTTP adapter for NestJS: real Nest on Bun without Express or Fastify.",
   "keywords": [
     "adapter",

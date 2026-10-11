@@ -1,6 +1,6 @@
 {
   "name": "nestjs-adapter-node",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native node:http HTTP adapter for NestJS: real Nest on Node.js without Express or Fastify.",
   "keywords": [
     "adapter",
