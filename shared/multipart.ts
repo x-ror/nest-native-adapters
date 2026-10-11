@@ -99,17 +99,18 @@ export async function parseDiskMultipart(
         callback(null, chunk);
       },
     });
-    const write = pipeline(
-      stream,
-      counter,
-      createWriteStream(path, { flags: "wx", mode: 0o600 }),
-    ).then(() => {
+    const destinationStream = createWriteStream(path, { flags: "wx", mode: 0o600 });
+    // Observe disk errors before pipeline propagates them back to the source.
+    // Parser errors already present on the source must stay client errors.
+    destinationStream.on("error", (error) => {
+      if (!stream.errored && !counter.errored) writeError ??= error;
+    });
+    const write = pipeline(stream, counter, destinationStream).then(() => {
       file.size = size;
       if (size > fileSizeLimit) limitError ??= new PayloadTooLargeException();
     });
     fileWrites.push(write);
     void write.catch((error: unknown) => {
-      writeError ??= error;
       parser.destroy(error instanceof Error ? error : new Error("Upload file write failed."));
     });
   });
@@ -134,11 +135,7 @@ export async function parseDiskMultipart(
     if (limitError) throw limitError;
     return { body, files, cleanup };
   } catch (error) {
-    const writeResults = await Promise.allSettled(fileWrites);
-    const failedWrite = writeResults.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (failedWrite) writeError ??= failedWrite.reason;
+    await Promise.allSettled(fileWrites);
     await cleanup();
     if (error instanceof PayloadTooLargeException) throw error;
     if (writeError !== undefined) throw writeError;

@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed disk-upload cleanup coverage for guard/validator rejection, handler
+  errors, malformed multipart, size/count limits and mixed concurrent requests
+  on Nest 10/11/12 and Node/Bun.
+
 - Packed shutdown coverage on Nest 10/11/12 and Node/Bun: asynchronous
   lifecycle hook order, graceful in-flight responses, SSE producer cleanup
   on timeout/forced close and refusal of connections after `app.close()`.
@@ -47,6 +51,10 @@ version and one changelog. The format follows
   with 10.2.8/core and on Nest 12.1.2, using both Node and Bun.
 
 ### Fixed
+
+- Truncated disk multipart uploads return HTTP 400 instead of misclassifying
+  parser errors propagated through file streams as disk write failures (500).
+  Real disk write errors retain their original error classification.
 
 - Legacy Nest SSE streams no longer terminate immediately because the raw
   web `Request` lacks Node's `on("close")`. A close-event bridge maps client

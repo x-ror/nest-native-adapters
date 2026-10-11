@@ -225,6 +225,13 @@ unchanged; per-file limits are checked after buffering, bounded by
 `uploadLimit`. With Nest's `rawBody` option, uploads use the in-memory path so
 `rawBody` can retain the complete request.
 
+Temporary disk uploads are also removed after guard/validator rejection or
+handler errors. Parsing happens before guards, so rejected requests can
+already have files on disk; cleanup still applies. Truncated multipart data
+returns HTTP 400, size/count limits return 413, and disk write failures remain
+server errors. The packed matrix covers these paths and concurrent successful/
+failed uploads on Nest 10/11/12 and both runtimes.
+
 These are **not drop-in Express plugin adapters**. `@Req()` exposes a
 `NativeRequest` with `.raw` (a web `Request`) and Nest's usual data fields.
 `@Res()` exposes `NativeResponse` with `status`, `json`, `send`, `write`, `end`,

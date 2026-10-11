@@ -84,7 +84,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Req, Scope, Sse, StreamableFile,
+  Body, Catch, ConflictException, Controller, Get, Inject, Injectable, MaxFileSizeValidator,
+  Module, Param, ParseFilePipe, Post, Req, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
@@ -103,6 +104,19 @@ import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
 const finished: string[] = [];
+const uploadState = { guards: 0, handlers: 0, paths: [] as string[] };
+@Injectable()
+class UploadGuard implements CanActivate {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    assert.equal(request.uploads?.length, 1, "Disk parsing precedes guards");
+    const file = request.uploads![0]!;
+    assert.equal(await readFile(file.path, "utf8"), "fixture upload");
+    uploadState.paths.push(file.path);
+    uploadState.guards++;
+    throw new UnauthorizedException();
+  }
+}
 const scopedState = { created: 0, active: 0, maxActive: 0 };
 @Injectable({ scope: Scope.REQUEST })
 class RequestIdentity {
@@ -260,10 +274,41 @@ class HealthController {
   async upload(@UploadedFile() file: DiskUploadedFileData, @Body() body: unknown) {
     return { originalname: file.originalname, content: await readFile(file.path, "utf8"), body };
   }
+
+  @Post("upload/guard")
+  @UseGuards(UploadGuard)
+  guardedUpload() {
+    uploadState.handlers++;
+    throw new Error("A rejected upload must never reach its handler");
+  }
+
+  @Post("upload/validated")
+  @UseInterceptors(
+    process.argv[2] === "bun" ? BunFileInterceptor("file") : NodeFileInterceptor("file"),
+  )
+  validatedUpload(@UploadedFile(new ParseFilePipe({
+    validators: [new MaxFileSizeValidator({ maxSize: 8 })],
+  })) file: DiskUploadedFileData) {
+    uploadState.handlers++;
+    return { size: file.size };
+  }
+
+  @Post("upload/failure")
+  @UseInterceptors(
+    process.argv[2] === "bun" ? BunFileInterceptor("file") : NodeFileInterceptor("file"),
+  )
+  async failedUpload(@UploadedFile() file: DiskUploadedFileData) {
+    uploadState.handlers++;
+    uploadState.paths.push(file.path);
+    assert.equal(await readFile(file.path, "utf8"), "fixture upload");
+    await delay(10);
+    assert.equal(await readFile(file.path, "utf8"), "fixture upload");
+    throw new ConflictException("fixture upload failure");
+  }
 }
 @Module({
   controllers: [HealthController, ScopedController],
-  providers: [AuthGuard, RequestIdentity, IdentityMiddleware, IdentityGuard, IdentityInterceptor, IdentityFilter],
+  providers: [AuthGuard, UploadGuard, RequestIdentity, IdentityMiddleware, IdentityGuard, IdentityInterceptor, IdentityFilter],
 })
 class HealthModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
@@ -372,6 +417,64 @@ try {
   assert.ok(scopedState.maxActive > 1, "Request-scoped handlers must overlap");
   assert.equal(scopedState.active, 0);
   assert.equal(scopedState.created, 14, "Middleware, guard, interceptor, filter and controller share one scope");
+  const cleanUploads = async () => {
+    const deadline = Date.now() + 2000;
+    while ((await readdir(uploadDirectory)).length) {
+      assert.ok(Date.now() < deadline, "Rejected uploads must not leave temporary directories");
+      await delay(10);
+    }
+  };
+  const formFor = (contents: string, field = "file") => {
+    const form = new FormData();
+    form.append(field, new Blob([contents]), "fixture.txt");
+    return form;
+  };
+  for (const [path, status, body] of [
+    ["/upload/guard", 401, formFor("fixture upload")],
+    ["/upload/validated", 400, formFor("fixture upload")],
+    ["/upload/validated", 400, new FormData()],
+    ["/upload", 400, formFor("fixture upload", "unexpected")],
+    ["/upload/failure", 409, formFor("fixture upload")],
+    ["/upload", 413, formFor("a".repeat(1025))],
+  ] as const) {
+    const response = await fetch(\`\${base}\${path}\`, { method: "POST", body });
+    assert.equal(response.status, status, \`Upload rejection at \${path}\`);
+    const error = await response.json();
+    if (status === 401) assert.deepEqual(error, { denied: true });
+    else assert.equal(error.statusCode, status);
+    await cleanUploads();
+  }
+  const multiple = formFor("first");
+  multiple.append("file", new Blob(["second"]), "second.txt");
+  const rejectedMultiple = await fetch(\`\${base}/upload\`, { method: "POST", body: multiple });
+  assert.equal(rejectedMultiple.status, 413);
+  await rejectedMultiple.text();
+  await cleanUploads();
+  const malformed = await fetch(\`\${base}/upload\`, {
+    method: "POST",
+    headers: { "content-type": "multipart/form-data; boundary=fixture-truncated" },
+    body: '--fixture-truncated\\r\\nContent-Disposition: form-data; name="file"; filename="partial.txt"\\r\\n\\r\\npartial',
+  });
+  assert.equal(malformed.status, 400, "Truncated multipart must be a client error");
+  await malformed.text();
+  await cleanUploads();
+  assert.equal(uploadState.guards, 1);
+  assert.equal(uploadState.handlers, 1, "Only the deliberate handler failure invokes user code");
+  await Promise.all(Array.from({ length: 8 }, async (_, index) => {
+    const failure = index % 2 === 0;
+    const response = await fetch(\`\${base}/upload\${failure ? "/failure" : ""}\`, {
+      method: "POST", body: formFor("fixture upload"),
+    });
+    assert.equal(response.status, failure ? 409 : 201);
+    const body = await response.json();
+    if (!failure) assert.equal(body.content, "fixture upload");
+  }));
+  await cleanUploads();
+  assert.equal(uploadState.handlers, 5);
+  assert.equal(new Set(uploadState.paths).size, 6, "Disk paths must be isolated per request");
+  for (const path of uploadState.paths) {
+    await assert.rejects(readFile(path), { code: "ENOENT" });
+  }
 } finally {
   await app.close();
 }
