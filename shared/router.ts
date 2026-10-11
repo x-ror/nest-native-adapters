@@ -18,6 +18,7 @@ export type Handler = (request: NativeRequest, response: NativeResponse, next: N
 export type Fail = (error: unknown, request: NativeRequest, response: NativeResponse) => void;
 type Params = Record<string, string | string[]>;
 interface Layer {
+  order: number;
   method?: string;
   // `true` means a match without parameters.
   match: (path: string) => Params | boolean;
@@ -25,9 +26,9 @@ interface Layer {
 }
 
 export class NativeRouter {
-  // ponytail: linear scan in registration order; index static routes or use a
-  // radix tree if apps with hundreds of routes show up in profiles.
+  private nextOrder = 0;
   private readonly layers: Layer[] = [];
+  private readonly staticRoutes = new Map<string, Map<string, Layer[]>>();
   use(path: string, handler: Handler): void {
     this.add(undefined, path, handler, false);
   }
@@ -56,13 +57,36 @@ export class NativeRouter {
         return result ? result.params : false;
       };
     }
-    this.layers.push({ method, handler, match: matcher });
+    const layer = { order: this.nextOrder++, method, handler, match: matcher };
+    if (method !== undefined && /^[\w\-./~%]+$/.test(path) && !path.endsWith("/")) {
+      let paths = this.staticRoutes.get(method);
+      if (!paths) this.staticRoutes.set(method, (paths = new Map()));
+      for (const key of [path, `${path}/`]) {
+        let routes = paths.get(key);
+        if (!routes) paths.set(key, (routes = []));
+        routes.push(layer);
+      }
+    } else {
+      this.layers.push(layer);
+    }
   }
 
   run(request: NativeRequest, response: NativeResponse, notFound: Handler, fail: Fail): void {
-    const layers = this.layers;
     const method = request.method;
     const path = request.path;
+    const candidates = this.layers.filter(
+      (layer) =>
+        layer.method === undefined ||
+        layer.method === method ||
+        layer.method === "ALL" ||
+        (method === "HEAD" && layer.method === "GET"),
+    );
+    const routeMethods = new Set([method, "ALL", ...(method === "HEAD" ? ["GET"] : [])]);
+    for (const routeMethod of routeMethods) {
+      const routes = this.staticRoutes.get(routeMethod)?.get(path);
+      if (routes) candidates.push(...routes);
+    }
+    candidates.sort((left, right) => left.order - right.order);
     let index = 0;
     let routeParams = false;
     const rejected = (error: unknown): void => fail(error, request, response);
@@ -70,19 +94,11 @@ export class NativeRouter {
       if (response.headersSent) return;
       try {
         let handler = notFound;
-        while (index < layers.length) {
-          const layer = layers[index++]!;
-          const layerMethod = layer.method;
-          if (
-            layerMethod !== undefined &&
-            layerMethod !== method &&
-            layerMethod !== "ALL" &&
-            !(method === "HEAD" && layerMethod === "GET")
-          ) {
-            continue;
-          }
+        while (index < candidates.length) {
+          const layer = candidates[index++]!;
           const result = layer.match(path);
           if (result === false) continue;
+          const layerMethod = layer.method;
           if (layerMethod !== undefined) {
             if (result !== true) {
               request.params = result;

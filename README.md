@@ -62,13 +62,15 @@ experiment has been retired. Explicit `@Inject()` remains usable.
 ## Current scope
 
 Supported: HTTP routing with `path-to-regexp` 8 syntax, named parameters and
-wildcards, query strings (repeated keys become arrays), global prefixes, URI,
-header, media-type and custom versioning, Nest middleware, JSON, nested URL-encoded and multipart form bodies,
-raw bodies, status/headers/cookies/redirects, HEAD/no-content responses,
-`StreamableFile`, Nest `@Sse()` routes returning Observables, and Nest's standard
-request pipeline. Repeated form fields become arrays, bracket notation creates
-nested objects/arrays, and multipart file fields are exposed as native `File`
-values on `@Body()`. Route matching is case-sensitive.
+wildcards; literal routes use an exact-path index while preserving registration
+order with dynamic routes and middleware. Query strings (repeated keys become
+arrays), global prefixes, URI, header, media-type and custom versioning, Nest
+middleware, JSON, nested URL-encoded and multipart form bodies, raw bodies,
+status/headers/cookies/redirects, HEAD/no-content responses, `StreamableFile`,
+Nest `@Sse()` routes returning Observables, and Nest's standard request pipeline.
+Repeated form fields become arrays, bracket notation creates nested
+objects/arrays, and multipart file fields are exposed as native `File` values on
+`@Body()`. Route matching is case-sensitive.
 
 Text, raw and extra JSON/URL-encoded media types are opt-in:
 `app.useBodyParser("text")`, `app.useBodyParser("raw", { limit: "1mb" })` or

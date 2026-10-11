@@ -46,6 +46,9 @@ import {
   type UploadedFileData,
 } from "nestjs-adapter-node";
 import { BunHttpAdapter } from "nestjs-adapter-bun";
+import { NativeRouter, type Handler } from "../shared/router.js";
+import type { NativeRequest as RouterRequest } from "../shared/request.js";
+import type { NativeResponse as RouterResponse } from "../shared/response.js";
 import { compareAdapters, startFixture } from "../packages/conformance/src/compare.js";
 import { FixtureModule, GreetingService } from "../packages/conformance/src/fixture.js";
 
@@ -133,6 +136,73 @@ class PagesModule {}
 const apps: INestApplication[] = [];
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
+});
+
+describe("native router static route index", () => {
+  function invoke(router: NativeRouter, method: string, path: string, calls: string[]): void {
+    const request = { method, path, params: {} } as unknown as RouterRequest;
+    const response = { headersSent: false } as unknown as RouterResponse;
+    router.run(
+      request,
+      response,
+      () => calls.push("not-found"),
+      (error) => {
+        throw error;
+      },
+    );
+  }
+
+  function record(calls: string[], name: string, continueRouting = false): Handler {
+    return (_request, _response, next) => {
+      calls.push(name);
+      if (continueRouting) next();
+    };
+  }
+
+  it("preserves registration order between static and parameterized routes", () => {
+    const parameterFirst = new NativeRouter();
+    const parameterCalls: string[] = [];
+    parameterFirst.route("GET", "/users/:id", record(parameterCalls, "parameter"));
+    parameterFirst.route("GET", "/users/me", record(parameterCalls, "static"));
+    invoke(parameterFirst, "GET", "/users/me", parameterCalls);
+    expect(parameterCalls).toEqual(["parameter"]);
+
+    const staticFirst = new NativeRouter();
+    const staticCalls: string[] = [];
+    staticFirst.route("GET", "/users/me", record(staticCalls, "static"));
+    staticFirst.route("GET", "/users/:id", record(staticCalls, "parameter"));
+    invoke(staticFirst, "GET", "/users/me", staticCalls);
+    expect(staticCalls).toEqual(["static"]);
+  });
+
+  it("keeps middleware order and path boundaries when continuing to a static route", () => {
+    const router = new NativeRouter();
+    const calls: string[] = [];
+    router.use("/", record(calls, "root", true));
+    router.use("/api", record(calls, "api", true));
+    router.route("GET", "/api/items", record(calls, "route"));
+
+    invoke(router, "GET", "/api/items/", calls);
+    expect(calls).toEqual(["root", "api", "route"]);
+
+    calls.length = 0;
+    invoke(router, "GET", "/apiary/items", calls);
+    expect(calls).toEqual(["root", "not-found"]);
+  });
+
+  it("keeps HEAD fallback, ALL routes, and trailing-slash behavior", () => {
+    const router = new NativeRouter();
+    const calls: string[] = [];
+    router.route("GET", "/health", record(calls, "get"));
+    router.route("ALL", "/health", record(calls, "all"));
+
+    invoke(router, "HEAD", "/health/", calls);
+    expect(calls).toEqual(["get"]);
+
+    calls.length = 0;
+    invoke(router, "POST", "/health", calls);
+    expect(calls).toEqual(["all"]);
+  });
 });
 
 describe("native Nest adapters", () => {
