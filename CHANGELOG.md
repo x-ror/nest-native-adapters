@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed HTTP coverage for request-scoped DI and scope bubbling on Nest
+  10/11/12, sharing one provider across middleware, guards, interceptors,
+  filters and controllers while isolating sequential and concurrent requests.
+
 - Nest 11 HTTP adapter support, with strict packed consumers on Nest 11.0.0
   and 11.2.7 for both Node and Bun. The Nest 10/11/12 matrix now also covers
   DTO validation, guards/filters, prefixes, parameters, header versioning,

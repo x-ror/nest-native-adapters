@@ -80,16 +80,18 @@ try {
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, Controller, Get, Injectable, Module, Param, Post, StreamableFile,
-  UnauthorizedException, UploadedFile, UseGuards, UseInterceptors, ValidationPipe,
+  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Scope, StreamableFile,
+  UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
-  type ArgumentsHost, type CanActivate, type ExceptionFilter, type ExecutionContext,
-  type MiddlewareConsumer, type NestModule,
+  type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
+  type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
 } from "@nestjs/common";
+import { map } from "rxjs/operators";
 import { Type } from "class-transformer";
 import { IsInt, Min } from "class-validator";
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, REQUEST } from "@nestjs/core";
 import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
 import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse } from "nestjs-adapter-node";
 import { BunHttpAdapter, FileInterceptor as BunFileInterceptor } from "nestjs-adapter-bun";
@@ -97,6 +99,87 @@ import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
 const finished: string[] = [];
+const scopedState = { created: 0, active: 0, maxActive: 0 };
+@Injectable({ scope: Scope.REQUEST })
+class RequestIdentity {
+  readonly instanceId = ++scopedState.created;
+  readonly requestId: string;
+  readonly auth: string;
+  readonly phases: string[] = [];
+  constructor(@Inject(REQUEST) readonly request: NativeRequest) {
+    const requestId = request.headers["x-request-id"];
+    const auth = request.headers["x-auth"];
+    assert.ok(typeof requestId === "string");
+    assert.ok(typeof auth === "string");
+    this.requestId = requestId;
+    this.auth = auth;
+  }
+  record(phase: string, request: NativeRequest) {
+    assert.equal(request, this.request, "All pipeline stages must share the injected REQUEST");
+    assert.equal(request.headers["x-request-id"], this.requestId);
+    assert.equal(request.headers["x-auth"], this.auth);
+    this.phases.push(phase);
+  }
+  result() {
+    return { requestId: this.requestId, auth: this.auth, instanceId: this.instanceId, phases: [...this.phases] };
+  }
+}
+@Injectable()
+class IdentityMiddleware implements NestMiddleware {
+  constructor(private readonly identity: RequestIdentity) {}
+  use(request: NativeRequest, _response: NativeResponse, next: () => void) {
+    this.identity.record("middleware", request);
+    next();
+  }
+}
+@Injectable()
+class IdentityGuard implements CanActivate {
+  constructor(private readonly identity: RequestIdentity) {}
+  canActivate(context: ExecutionContext) {
+    this.identity.record("guard", context.switchToHttp().getRequest<NativeRequest>());
+    if (this.identity.auth !== "yes") throw new UnauthorizedException();
+    return true;
+  }
+}
+@Injectable()
+class IdentityInterceptor implements NestInterceptor {
+  constructor(private readonly identity: RequestIdentity) {}
+  intercept(context: ExecutionContext, next: CallHandler) {
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    this.identity.record("interceptor-before", request);
+    return next.handle().pipe(map(() => {
+      this.identity.record("interceptor-after", request);
+      return this.identity.result();
+    }));
+  }
+}
+@Catch(UnauthorizedException)
+class IdentityFilter implements ExceptionFilter {
+  constructor(private readonly identity: RequestIdentity) {}
+  catch(_exception: UnauthorizedException, host: ArgumentsHost) {
+    this.identity.record("filter", host.switchToHttp().getRequest<NativeRequest>());
+    host.switchToHttp().getResponse<NativeResponse>().status(401).json(this.identity.result());
+  }
+}
+@Controller("scoped")
+@UseGuards(IdentityGuard)
+@UseInterceptors(IdentityInterceptor)
+@UseFilters(IdentityFilter)
+class ScopedController {
+  constructor(private readonly identity: RequestIdentity) {}
+  @Get()
+  async scoped() {
+    this.identity.record("controller", this.identity.request);
+    scopedState.active++;
+    scopedState.maxActive = Math.max(scopedState.maxActive, scopedState.active);
+    try {
+      await delay(30);
+      this.identity.record("controller-after-await", this.identity.request);
+    } finally {
+      scopedState.active--;
+    }
+  }
+}
 @Injectable()
 class AuthGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
@@ -174,7 +257,10 @@ class HealthController {
     return { originalname: file.originalname, content: await readFile(file.path, "utf8"), body };
   }
 }
-@Module({ controllers: [HealthController], providers: [AuthGuard] })
+@Module({
+  controllers: [HealthController, ScopedController],
+  providers: [AuthGuard, RequestIdentity, IdentityMiddleware, IdentityGuard, IdentityInterceptor, IdentityFilter],
+})
 class HealthModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply((request: NativeRequest, response: NativeResponse, next: () => void) => {
@@ -185,6 +271,7 @@ class HealthModule implements NestModule {
       response.cookie("signed", "works", { signed: true, httpOnly: true });
       next();
     }).forRoutes("*");
+    consumer.apply(IdentityMiddleware).forRoutes(ScopedController);
   }
 }
 
@@ -258,6 +345,29 @@ try {
   });
   assert.equal(cors.status, 204);
   assert.equal(cors.headers.get("access-control-allow-origin"), "*");
+  const scopedIds = new Set<number>();
+  const scoped = async (requestId: string, auth = "yes") => {
+    const response = await fetch(\`\${base}/scoped\`, {
+      headers: { "x-request-id": requestId, "x-auth": auth },
+    });
+    assert.equal(response.status, auth === "yes" ? 200 : 401);
+    const body = await response.json();
+    assert.equal(body.requestId, requestId);
+    assert.equal(body.auth, auth);
+    assert.ok(Number.isSafeInteger(body.instanceId));
+    assert.ok(!scopedIds.has(body.instanceId), "A provider instance must not survive into another request");
+    scopedIds.add(body.instanceId);
+    assert.deepEqual(body.phases, auth === "yes"
+      ? ["middleware", "guard", "interceptor-before", "controller", "controller-after-await", "interceptor-after"]
+      : ["middleware", "guard", "filter"]);
+  };
+  await scoped("sequential-1");
+  await scoped("sequential-2");
+  await Promise.all(Array.from({ length: 12 }, (_, index) =>
+    scoped(\`parallel-\${index}\`, index % 3 ? "yes" : "no")));
+  assert.ok(scopedState.maxActive > 1, "Request-scoped handlers must overlap");
+  assert.equal(scopedState.active, 0);
+  assert.equal(scopedState.created, 14, "Middleware, guard, interceptor, filter and controller share one scope");
 } finally {
   await app.close();
 }

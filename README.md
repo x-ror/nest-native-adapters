@@ -104,6 +104,14 @@ installed in the application. Compile DTO classes with
 `reflect-metadata` before the application. Without emitted metadata, Nest
 cannot infer the DTO type for global validation.
 
+Nest request-scoped DI (`Scope.REQUEST` and the `REQUEST` injection token)
+is supported. A scoped provider is shared within one request across middleware,
+guards, interceptors, filters and the controller, but not across requests.
+Nest's scope bubbling applies: a controller or provider depending on a
+request-scoped provider becomes request-scoped without an explicit scope.
+The packed matrix covers sequential and overlapping authorized/rejected
+requests on all supported Nest baselines.
+
 `@nestjs/swagger` works with both adapters:
 
 ```ts
@@ -577,6 +585,8 @@ cookies, response events, global prefixes, route parameters, DTO transformation/
 validation, guards/filters, header versioning, streamed responses, HEAD and CORS
 on Node and Bun. This HTTP matrix does not extend the Apollo driver's supported
 Nest versions; its GraphQL stacks are listed separately.
+It also checks request-scoped provider identity across the pipeline, scope
+bubbling, and isolation of request headers across asynchronous concurrent handlers.
 Declaration checks run with `skipLibCheck: false`. TypeScript consumers need
 `@types/node`; consumers importing the Bun adapter also need `@types/bun`.
 `NativeRequest.headers` uses Node's `IncomingHttpHeaders` shape: arbitrary
