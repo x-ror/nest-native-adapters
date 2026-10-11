@@ -13,7 +13,7 @@ decorators, guards, pipes, interceptors, exception filters, and application life
 
 The two adapters include shared router, request parsing, and response code in their builds.
 `shared/` is internal source, not a separate npm package.
-Run `pnpm run build` before packing or publishing either adapter; only `dist/` is shipped. Packages are not published to npm yet; see Releasing below. Supported baseline:
+Run `pnpm run build` before packing or publishing either adapter; only `dist/` is shipped. See Releasing below for publishing requirements. Supported baseline:
 NestJS **12.1.2**, Node.js 22+, current Bun. Other Nest versions are not yet verified.
 Neither adapter uses Express or Fastify. Express is a test-only reference and
 Fastify a benchmark-only one.
@@ -531,8 +531,17 @@ Both packages share one version, recorded in `CHANGELOG.md`.
 2. Push a tag `v<version>`. The Release workflow builds, runs the full
    check, test, Bun and packed-consumer suites, checks that the tag matches
    both packages and that a license is set, then publishes both packages to
-   npm with provenance. It needs an `NPM_TOKEN` secret in a GitHub environment
-   named `npm`.
+   npm with provenance using OIDC, without an npm token. For each npm package,
+   configure a GitHub Actions trusted publisher: user `x-ror`, repository
+   `nest-native-adapters`, workflow filename `release.yml`, environment `npm`,
+   and permission to run `npm publish`. The workflow uses GitHub-hosted runners
+   and npm CLI 11.19.0 (trusted publishing requires npm 11.5.1+).
+
+Trusted publishers are configured in the settings of existing npm packages.
+For a new package, bootstrap it through an authenticated manual publish before
+configuring its trusted publisher. After a successful OIDC publish, revoke
+unused publishing tokens and remove the `NPM_TOKEN` secret. Do not rerun an old
+token-based release workflow to test OIDC; it uses the workflow from its tag.
 
 ## License
 
