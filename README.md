@@ -159,6 +159,17 @@ exact body-limit boundaries and recovery after malformed/oversized bodies.
 
 ## Current scope
 
+URI versioning follows Nest's route metadata: controller versions can be
+overridden by `@Version()`, a handler can accept multiple versions, and
+`VERSION_NEUTRAL` omits the version segment (but keeps the global prefix).
+`defaultVersion` applies to routes without explicit version metadata.
+The URI prefix defaults to `v`; configure `prefix: "release-"` or
+`prefix: false` through `app.enableVersioning()` when needed.
+
+The packed matrix covers these combinations on Nest 10/11/12 and Node/Bun,
+including controller middleware running exactly once for each version,
+query strings and rejection of nonexistent versions or unprefixed aliases.
+
 Use `@Res({ passthrough: true })` when setting headers/cookies or a status
 while returning a value for Nest to serialize. `ClassSerializerInterceptor`
 still applies to returned class instances (including `@Exclude()` fields).

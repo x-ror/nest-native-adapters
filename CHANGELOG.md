@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed URI versioning coverage on Nest 10/11/12 and Node/Bun: controller/
+  handler overrides, multiple versions, neutral/default versions, custom/
+  disabled URI prefixes, middleware invocation and rejection of route aliases.
+
 - Packed response-contract coverage on Nest 10/11/12 and Node/Bun:
   asynchronous manual/passthrough responses, class serialization with excluded
   fields, cookies/headers, HTTP 204, dynamic redirects and exception content types.

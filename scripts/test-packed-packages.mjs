@@ -88,7 +88,7 @@ import {
   Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
-  Version, VersioningType,
+  VERSION_NEUTRAL, Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
   type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
   type OnModuleDestroy, type BeforeApplicationShutdown, type OnApplicationShutdown,
@@ -926,6 +926,75 @@ try {
   }
 } finally {
   await accessApp.close();
+}
+const versionVisits: string[] = [];
+@Controller({ path: "catalog", version: "1" })
+class CatalogController {
+  @Get(":id")
+  first(@Param("id") id: string) { return { id, version: "1" }; }
+  @Get(":id")
+  @Version("2")
+  second(@Param("id") id: string) { return { id, version: "2" }; }
+  @Get("shared/:id")
+  @Version(["1", "2"])
+  shared(@Param("id") id: string) { return { id, shared: true }; }
+  @Get("neutral/status")
+  @Version(VERSION_NEUTRAL)
+  neutral() { return { neutral: true }; }
+}
+@Controller("default")
+class DefaultVersionController {
+  @Get()
+  get() { return { default: true }; }
+}
+@Module({ controllers: [CatalogController, DefaultVersionController] })
+class VersionedModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply((request: NativeRequest, response: NativeResponse, next: () => void) => {
+      versionVisits.push(request.path);
+      response.header("x-version-middleware", "fixture");
+      next();
+    }).forRoutes(CatalogController, DefaultVersionController);
+  }
+}
+for (const prefix of ["v", "release-", false] as const) {
+  const adapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+  const app = await NestFactory.create(VersionedModule, adapter, { logger: false });
+  try {
+    app.setGlobalPrefix("api");
+    app.enableVersioning({ type: VersioningType.URI, defaultVersion: "1", prefix });
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const v1 = prefix === false ? "1" : \`\${prefix}1\`;
+    const v2 = prefix === false ? "2" : \`\${prefix}2\`;
+    for (const [path, expected] of [
+      [\`/api/\${v1}/catalog/42\`, { id: "42", version: "1" }],
+      [\`/api/\${v2}/catalog/42?fixture=1\`, { id: "42", version: "2" }],
+      [\`/api/\${v1}/catalog/shared/7\`, { id: "7", shared: true }],
+      [\`/api/\${v2}/catalog/shared/7\`, { id: "7", shared: true }],
+      ["/api/catalog/neutral/status", { neutral: true }],
+      [\`/api/\${v1}/default\`, { default: true }],
+    ] as const) {
+      const before = versionVisits.length;
+      const response = await fetch(\`\${base}\${path}\`);
+      assert.equal(response.status, 200, \`URI version route: \${path}\`);
+      assert.deepEqual(await response.json(), expected);
+      assert.equal(response.headers.get("x-version-middleware"), "fixture");
+      assert.deepEqual(versionVisits.slice(before), [path.split("?")[0]],
+        "Controller middleware must match every version exactly once");
+    }
+    for (const path of [
+      "/api/catalog/42", \`/api/\${prefix === false ? "3" : \`\${prefix}3\`}/catalog/42\`,
+      \`/api/\${v1}/catalog/neutral/status\`, \`/api/\${v2}/default\`,
+      \`/\${v1}/catalog/42\`,
+    ]) {
+      const response = await fetch(\`\${base}\${path}\`);
+      assert.equal(response.status, 404, \`URI version aliases must not exist: \${path}\`);
+      await response.text();
+    }
+  } finally {
+    await app.close();
+  }
 }
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
