@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed shutdown coverage on Nest 10/11/12 and Node/Bun: asynchronous
+  lifecycle hook order, graceful in-flight responses, SSE producer cleanup
+  on timeout/forced close and refusal of connections after `app.close()`.
+
 - Packed SSE coverage on Nest 10/11/12 and Node/Bun for event IDs/types,
   retry values, multiline data, concurrent streams, `Last-Event-ID` headers
   and Observable cleanup after client cancellation.

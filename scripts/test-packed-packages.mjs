@@ -89,6 +89,7 @@ import {
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
   type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
+  type OnModuleDestroy, type BeforeApplicationShutdown, type OnApplicationShutdown,
 } from "@nestjs/common";
 import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
@@ -577,6 +578,96 @@ try {
 } finally {
   await Promise.all(readers.map((reader) => reader.cancel()));
   await eventsApp.close();
+}
+for (const kind of ["graceful", "timeout", "forced"] as const) {
+  const hooks: string[] = [];
+  let startRequest!: () => void;
+  const started = new Promise<void>((resolve) => { startRequest = resolve; });
+  let releaseRequest!: () => void;
+  const released = new Promise<void>((resolve) => { releaseRequest = resolve; });
+  let startShutdown!: () => void;
+  const shutdownStarted = new Promise<void>((resolve) => { startShutdown = resolve; });
+  @Injectable()
+  class ShutdownHooks implements OnModuleDestroy, BeforeApplicationShutdown, OnApplicationShutdown {
+    async onModuleDestroy() {
+      await delay(5);
+      hooks.push("destroy");
+    }
+    async beforeApplicationShutdown() {
+      hooks.push("before");
+      startShutdown();
+      await delay(5);
+    }
+    async onApplicationShutdown() {
+      hooks.push("after");
+    }
+  }
+  @Controller("shutdown")
+  class ShutdownController {
+    @Get("slow")
+    async slow() {
+      startRequest();
+      await released;
+      return { drained: true };
+    }
+  }
+  @Module({ controllers: [ShutdownController, EventsController], providers: [ShutdownHooks] })
+  class ShutdownModule {}
+  const options: NativeAdapterOptions = { shutdownTimeout: kind === "forced" ? 5000 : 200 };
+  const adapter = process.argv[2] === "bun" ? new BunHttpAdapter(options) : new NodeHttpAdapter(options);
+  const app = await NestFactory.create(ShutdownModule, adapter, {
+    logger: false, forceCloseConnections: kind === "forced",
+  });
+  let closing: Promise<void> | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    if (kind === "graceful") {
+      const pending = fetch(\`\${base}/shutdown/slow\`, { signal: AbortSignal.timeout(5000) });
+      await started;
+      closing = app.close();
+      await shutdownStarted;
+      assert.deepEqual(hooks, ["destroy", "before"]);
+      releaseRequest();
+      const response = await pending;
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { drained: true });
+      await closing;
+    } else {
+      const id = \`shutdown-\${kind}\`;
+      const response = await fetch(\`\${base}/events/live\`, {
+        headers: { "x-request-id": id }, signal: AbortSignal.timeout(5000),
+      });
+      assert.ok(response.body);
+      reader = response.body.getReader();
+      await waitFor(() => sseState.active.has(id), "Shutdown SSE producer must start");
+      const before = performance.now();
+      closing = app.close();
+      const settled = Promise.allSettled([(async () => {
+        while (!(await reader!.read()).done) {}
+      })()]);
+      await closing;
+      const elapsed = performance.now() - before;
+      if (kind === "timeout") assert.ok(elapsed >= 180 && elapsed < 2000,
+        \`Shutdown timeout must bound active SSE: \${elapsed}ms\`);
+      else assert.ok(elapsed < 2000, \`Forced close must not wait for 5000ms: \${elapsed}ms\`);
+      const [result] = await settled;
+      if (result!.status === "rejected") {
+        assert.notEqual(result!.reason?.name, "TimeoutError", "Server, not the client timeout, must close SSE");
+      }
+      await waitFor(() => !sseState.active.has(id), "Shutdown must release the SSE producer");
+      assert.equal(sseState.finalized.filter((value) => value === id).length, 1);
+    }
+    assert.deepEqual(hooks, ["destroy", "before", "after"], "Lifecycle hooks run once in order");
+    await assert.rejects(fetch(\`\${base}/shutdown/slow\`, { signal: AbortSignal.timeout(1000) }),
+      (error: Error) => error.name !== "TimeoutError",
+      "Closed server must refuse new connections");
+  } finally {
+    releaseRequest();
+    await (closing ?? app.close());
+    reader?.releaseLock();
+  }
 }
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,

@@ -187,6 +187,20 @@ The default parsed-body limit is 100 KiB; configure `new NodeHttpAdapter({
 bodyLimit: 1024 * 1024 })` or the same option on Bun. `shutdownTimeout` defaults
 to 5000 ms, after which outstanding connections are forcibly closed.
 
+`app.close()` drains an active HTTP response, while `shutdownTimeout` bounds
+long-lived connections such as SSE. Nest's `forceCloseConnections: true`
+application option skips that grace period. Closing an SSE connection
+unsubscribes the producer Observable.
+
+Nest runs `onModuleDestroy()` and `beforeApplicationShutdown()` before closing
+the HTTP adapter, then `onApplicationShutdown()` afterward. Keep resources
+needed by in-flight handlers available until draining completes; use the
+final hook for their cleanup where appropriate. The adapter timeout bounds
+HTTP draining, not an application's own asynchronous shutdown hooks.
+The packed matrix covers hook order, successful in-flight responses, SSE
+cleanup on timeout/forced close and refusal of new connections after shutdown
+on Nest 10/11/12 and both runtimes.
+
 For large multipart uploads, opt into temporary disk-backed streaming:
 
 ```ts
