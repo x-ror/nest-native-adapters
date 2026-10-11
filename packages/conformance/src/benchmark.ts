@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { Agent, request as httpRequest } from "node:http";
 import { performance } from "node:perf_hooks";
 import { createInterface } from "node:readline";
+import { Controller, Get, Module } from "@nestjs/common";
 import { NestFactory, type AbstractHttpAdapter } from "@nestjs/core";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
@@ -21,6 +22,9 @@ const concurrency = Number(process.env.BENCH_CONCURRENCY ?? 32);
 const clientProcesses = Number(process.env.BENCH_CLIENT_PROCESSES ?? 4);
 const runsCount = Number(process.env.BENCH_RUNS ?? 3);
 const workload = process.env.BENCH_WORKLOAD ?? "json";
+const routeCounts = (process.env.BENCH_ROUTE_COUNTS ?? "100,1000,10000")
+  .split(",")
+  .map((value) => Number(value.trim()));
 if (!["node", "bun", "express", "fastify"].includes(mode)) {
   throw new Error("Usage: benchmark.js [node|bun|express|fastify]");
 }
@@ -36,8 +40,15 @@ if (
     "BENCH_DURATION_MS, BENCH_CONCURRENCY, and BENCH_RUNS must be positive integers; warmup must be nonnegative.",
   );
 }
-if (!["json", "route", "post", "mixed"].includes(workload)) {
-  throw new Error("BENCH_WORKLOAD must be json, route, post, or mixed.");
+if (!["json", "route", "post", "mixed", "router"].includes(workload)) {
+  throw new Error("BENCH_WORKLOAD must be json, route, post, mixed, or router.");
+}
+if (
+  workload === "router" &&
+  (routeCounts.length === 0 ||
+    routeCounts.some((count) => !Number.isSafeInteger(count) || count <= 0))
+) {
+  throw new Error("BENCH_ROUTE_COUNTS must be comma-separated positive integers.");
 }
 // Load generators may run on another runtime (BENCH_CLIENT_EXEC) than the server.
 if (!clientMode) {
@@ -61,10 +72,34 @@ const workloadRequests: WorkloadRequest[] = [
   },
 ];
 const selectedWorkloads =
-  workload === "mixed"
-    ? workloadRequests
-    : [workloadRequests[{ json: 0, route: 1, post: 2 }[workload]!]];
+  workload === "router"
+    ? [
+        {
+          path: `/bench/static-${Number(process.env.BENCH_ROUTE_COUNT ?? routeCounts[0]) - 1}`,
+          expectedStatus: 200,
+        },
+      ]
+    : workload === "mixed"
+      ? workloadRequests
+      : [workloadRequests[{ json: 0, route: 1, post: 2 }[workload]!]];
 let workloadSequence = 0;
+
+function createRouterBenchmarkModule(routeCount: number) {
+  class RouterBenchmarkController {}
+  for (let index = 0; index < routeCount; index++) {
+    const methodName = `route${index}`;
+    const descriptor: PropertyDescriptor = {
+      configurable: true,
+      value: () => "ok",
+    };
+    Object.defineProperty(RouterBenchmarkController.prototype, methodName, descriptor);
+    Get(`static-${index}`)(RouterBenchmarkController.prototype, methodName, descriptor);
+  }
+  Controller("bench")(RouterBenchmarkController);
+  class RouterBenchmarkModule {}
+  Module({ controllers: [RouterBenchmarkController] })(RouterBenchmarkModule);
+  return RouterBenchmarkModule;
+}
 
 interface RunResult {
   requests: number;
@@ -189,6 +224,7 @@ async function runClient(
 }
 
 async function runServer(): Promise<void> {
+  const routeCount = Number(process.env.BENCH_ROUTE_COUNT ?? 0);
   const adapter: AbstractHttpAdapter =
     mode === "express"
       ? new ExpressAdapter()
@@ -197,7 +233,9 @@ async function runServer(): Promise<void> {
         : mode === "bun"
           ? new BunHttpAdapter()
           : new NodeHttpAdapter();
-  const app = await NestFactory.create(FixtureModule, adapter, {
+  const fixtureModule =
+    workload === "router" ? createRouterBenchmarkModule(routeCount) : FixtureModule;
+  const app = await NestFactory.create(fixtureModule, adapter, {
     logger: false,
     abortOnError: false,
   });
@@ -212,19 +250,21 @@ async function runServer(): Promise<void> {
   });
 }
 
-async function startServerProcess(): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
+async function startServerProcess(
+  routeCount: number,
+): Promise<{ baseUrl: string; stop: () => Promise<void> }> {
   const scriptPath = process.argv[1];
   if (!scriptPath) throw new Error("Cannot resolve the benchmark script path.");
   const child = spawn(process.execPath, [scriptPath, mode, "--server"], {
     stdio: ["ignore", "pipe", "inherit"],
-    env: process.env,
+    env: { ...process.env, BENCH_ROUTE_COUNT: String(routeCount) },
   });
   const lines = createInterface({ input: child.stdout });
   let serverUrl: string | undefined;
   const ready = new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error("Timed out waiting for benchmark server.")),
-      30_000,
+      120_000,
     );
     timeout.unref();
     child.once("error", (error) => {
@@ -288,121 +328,136 @@ if (serverMode) {
   );
   console.log(`BENCH_CLIENT_RESULT ${JSON.stringify(result)}`);
 } else {
-  const server = await startServerProcess();
-  try {
-    const baseUrl = server.baseUrl;
-    const results: RunResult[] = [];
-    for (let run = 0; run < runsCount; run++) {
-      const clients = Array.from({ length: clientProcesses }, (_, index) => {
-        const clientConcurrency =
-          Math.floor(concurrency / clientProcesses) +
-          (index < concurrency % clientProcesses ? 1 : 0);
-        if (clientConcurrency === 0) return null;
-        const child = spawn(
-          process.env.BENCH_CLIENT_EXEC ?? process.execPath,
-          [process.argv[1]!, mode, "--client"],
-          {
-            stdio: ["pipe", "pipe", "inherit"],
-            env: {
-              ...process.env,
-              BENCH_BASE_URL: baseUrl,
-              BENCH_CLIENT_CONCURRENCY: String(clientConcurrency),
+  const scenarios: {
+    routeCount: number;
+    runs: RunResult[];
+    summary: {
+      requestsPerSecondMean: number;
+      requestsPerSecondStandardDeviation: number;
+      failures: number;
+    };
+  }[] = [];
+  for (const routeCount of workload === "router" ? routeCounts : [0]) {
+    const server = await startServerProcess(routeCount);
+    try {
+      const baseUrl = server.baseUrl;
+      const results: RunResult[] = [];
+      for (let run = 0; run < runsCount; run++) {
+        const clients = Array.from({ length: clientProcesses }, (_, index) => {
+          const clientConcurrency =
+            Math.floor(concurrency / clientProcesses) +
+            (index < concurrency % clientProcesses ? 1 : 0);
+          if (clientConcurrency === 0) return null;
+          const child = spawn(
+            process.env.BENCH_CLIENT_EXEC ?? process.execPath,
+            [process.argv[1]!, mode, "--client"],
+            {
+              stdio: ["pipe", "pipe", "inherit"],
+              env: {
+                ...process.env,
+                BENCH_BASE_URL: baseUrl,
+                BENCH_CLIENT_CONCURRENCY: String(clientConcurrency),
+                BENCH_ROUTE_COUNT: String(routeCount),
+              },
             },
-          },
+          );
+          const lines = createInterface({ input: child.stdout });
+          let resolveReady!: () => void;
+          let rejectReady!: (error: Error) => void;
+          const ready = new Promise<void>((resolve, reject) => {
+            resolveReady = resolve;
+            rejectReady = reject;
+          });
+          const result = new Promise<ClientResult>((resolve, reject) => {
+            let result: ClientResult | undefined;
+            lines.on("line", (line) => {
+              const prefix = "BENCH_CLIENT_RESULT ";
+              if (line.startsWith(prefix)) {
+                result = JSON.parse(line.slice(prefix.length)) as ClientResult;
+              } else if (line === "BENCH_CLIENT_READY") {
+                resolveReady();
+              } else {
+                console.log(line);
+              }
+            });
+            child.once("error", (error) => {
+              rejectReady(error);
+              reject(error);
+            });
+            child.once("exit", (code) => {
+              lines.close();
+              rejectReady(new Error(`Benchmark client exited before ready (code ${code}).`));
+              if (code !== 0 || !result) {
+                reject(new Error(`Benchmark client exited without results (code ${code}).`));
+                return;
+              }
+              resolve(result);
+            });
+          });
+          return { child, ready, result };
+        });
+        const activeClients = clients.filter((client) => client !== null);
+        await Promise.all(activeClients.map((client) => client.ready));
+        for (const client of activeClients) client.child.stdin.end("START\n");
+        const clientResults = await Promise.all(activeClients.map((client) => client.result));
+        const buckets = new Uint32Array(32);
+        const requests = clientResults.reduce((total, result) => total + result.requests, 0);
+        for (const result of clientResults) {
+          result.buckets.forEach((count, index) => {
+            buckets[index] = (buckets[index] ?? 0) + count;
+          });
+        }
+        const totalLatencyUs = clientResults.reduce(
+          (total, result) => total + result.totalLatencyUs,
+          0,
         );
-        const lines = createInterface({ input: child.stdout });
-        let resolveReady!: () => void;
-        let rejectReady!: (error: Error) => void;
-        const ready = new Promise<void>((resolve, reject) => {
-          resolveReady = resolve;
-          rejectReady = reject;
-        });
-        const result = new Promise<ClientResult>((resolve, reject) => {
-          let result: ClientResult | undefined;
-          lines.on("line", (line) => {
-            const prefix = "BENCH_CLIENT_RESULT ";
-            if (line.startsWith(prefix)) {
-              result = JSON.parse(line.slice(prefix.length)) as ClientResult;
-            } else if (line === "BENCH_CLIENT_READY") {
-              resolveReady();
-            } else {
-              console.log(line);
-            }
-          });
-          child.once("error", (error) => {
-            rejectReady(error);
-            reject(error);
-          });
-          child.once("exit", (code) => {
-            lines.close();
-            rejectReady(new Error(`Benchmark client exited before ready (code ${code}).`));
-            if (code !== 0 || !result) {
-              reject(new Error(`Benchmark client exited without results (code ${code}).`));
-              return;
-            }
-            resolve(result);
-          });
-        });
-        return { child, ready, result };
-      });
-      const activeClients = clients.filter((client) => client !== null);
-      await Promise.all(activeClients.map((client) => client.ready));
-      for (const client of activeClients) client.child.stdin.end("START\n");
-      const clientResults = await Promise.all(activeClients.map((client) => client.result));
-      const buckets = new Uint32Array(32);
-      const requests = clientResults.reduce((total, result) => total + result.requests, 0);
-      for (const result of clientResults) {
-        result.buckets.forEach((count, index) => {
-          buckets[index] = (buckets[index] ?? 0) + count;
+        const elapsedSeconds = Math.max(
+          ...clientResults.map((result) => result.elapsedSeconds),
+          Number.EPSILON,
+        );
+        results.push({
+          requests,
+          failures: clientResults.reduce((total, result) => total + result.failures, 0),
+          requestsPerSecond: Math.round(requests / elapsedSeconds),
+          meanLatencyMs: Number((totalLatencyUs / Math.max(requests, 1) / 1000).toFixed(3)),
+          p50UpperBoundMs: Number(percentile(buckets, requests, 0.5).toFixed(3)),
+          p95UpperBoundMs: Number(percentile(buckets, requests, 0.95).toFixed(3)),
+          p99UpperBoundMs: Number(percentile(buckets, requests, 0.99).toFixed(3)),
+          elapsedSeconds: Number(elapsedSeconds.toFixed(3)),
         });
       }
-      const totalLatencyUs = clientResults.reduce(
-        (total, result) => total + result.totalLatencyUs,
-        0,
+      const rates = results.map((result) => result.requestsPerSecond);
+      const averageRate = rates.reduce((total, value) => total + value, 0) / rates.length;
+      const standardDeviation = Math.sqrt(
+        rates.reduce((total, value) => total + (value - averageRate) ** 2, 0) / rates.length,
       );
-      const elapsedSeconds = Math.max(
-        ...clientResults.map((result) => result.elapsedSeconds),
-        Number.EPSILON,
-      );
-      results.push({
-        requests,
-        failures: clientResults.reduce((total, result) => total + result.failures, 0),
-        requestsPerSecond: Math.round(requests / elapsedSeconds),
-        meanLatencyMs: Number((totalLatencyUs / Math.max(requests, 1) / 1000).toFixed(3)),
-        p50UpperBoundMs: Number(percentile(buckets, requests, 0.5).toFixed(3)),
-        p95UpperBoundMs: Number(percentile(buckets, requests, 0.95).toFixed(3)),
-        p99UpperBoundMs: Number(percentile(buckets, requests, 0.99).toFixed(3)),
-        elapsedSeconds: Number(elapsedSeconds.toFixed(3)),
-      });
-    }
-    const rates = results.map((result) => result.requestsPerSecond);
-    const averageRate = rates.reduce((total, value) => total + value, 0) / rates.length;
-    const standardDeviation = Math.sqrt(
-      rates.reduce((total, value) => total + (value - averageRate) ** 2, 0) / rates.length,
-    );
-    console.log(
-      JSON.stringify(
-        {
-          mode,
-          workload,
-          runtime: bunVersion === undefined ? `Node ${process.version}` : `Bun ${bunVersion}`,
-          concurrency,
-          clientProcesses,
-          warmupMs,
-          durationMs,
-          runs: results,
-          summary: {
-            requestsPerSecondMean: Math.round(averageRate),
-            requestsPerSecondStandardDeviation: Math.round(standardDeviation),
-            failures: results.reduce((total, result) => total + result.failures, 0),
-          },
+      scenarios.push({
+        routeCount,
+        runs: results,
+        summary: {
+          requestsPerSecondMean: Math.round(averageRate),
+          requestsPerSecondStandardDeviation: Math.round(standardDeviation),
+          failures: results.reduce((total, result) => total + result.failures, 0),
         },
-        null,
-        2,
-      ),
-    );
-    if (results.some((result) => result.failures > 0)) process.exitCode = 1;
-  } finally {
-    await server.stop();
+      });
+    } finally {
+      await server.stop();
+    }
   }
+  const common = {
+    mode,
+    workload,
+    runtime: bunVersion === undefined ? `Node ${process.version}` : `Bun ${bunVersion}`,
+    concurrency,
+    clientProcesses,
+    warmupMs,
+    durationMs,
+  };
+  if (workload === "router") {
+    console.log(JSON.stringify({ ...common, routeCounts, scenarios }, null, 2));
+  } else {
+    const { runs, summary } = scenarios[0]!;
+    console.log(JSON.stringify({ ...common, runs, summary }, null, 2));
+  }
+  if (scenarios.some((scenario) => scenario.summary.failures > 0)) process.exitCode = 1;
 }

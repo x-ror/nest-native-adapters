@@ -426,7 +426,11 @@ Other integrations can share the Bun server through
 The benchmark exercises the same real Nest fixture over loopback for a native
 adapter and the Nest/Express reference. It supports a JSON GET, a parameterized
 route with repeated query fields, a JSON POST, or a round-robin mix of all
-three. The benchmark server runs separately from multiple load-generator processes.
+three. The `router` workload generates static routes and measures the last
+registered route against 100, 1,000 and 10,000 route tables by default; set
+`BENCH_ROUTE_COUNTS=100,1000,10000` to choose other positive route counts. Each
+route-table size gets a fresh server process, with the same load-generator
+processes and settings. The benchmark server runs separately from multiple load-generator processes.
 Clients use persistent HTTP connections and synchronize measurement start after
 warmup to reduce client event-loop contention and process-start skew. It
 includes Nest's routing, DI, and fixture middleware, but does not model remote
@@ -444,13 +448,16 @@ The defaults are three runs, each with 2 seconds of warmup, 10 seconds of
 measurement, and 32 total concurrent clients split across four client
 processes. Configure with `BENCH_RUNS`, `BENCH_WARMUP_MS`, `BENCH_DURATION_MS`,
 `BENCH_CONCURRENCY`, and `BENCH_CLIENT_PROCESSES`. Select
-`BENCH_WORKLOAD=json|route|post|mixed`; default is `json`. Output includes each
-run's request rate, failures, mean latency, and approximate percentile upper
-bounds from a logarithmic histogram, plus mean throughput and standard
-deviation across runs. Run each mode on an otherwise idle machine and compare
-the same workload, runtime version, and environment. This harness is a
-reproducible local baseline, not a production load test or evidence of a
-performance advantage.
+`BENCH_WORKLOAD=json|route|post|mixed|router`; default is `json`. For example,
+`BENCH_WORKLOAD=router pnpm bench` runs the route-count comparison with the Node
+adapter; use `pnpm bench:express`, `pnpm bench:fastify`, or `pnpm bench:bun`
+with the same environment to compare platforms. Output includes each run's
+request rate, failures, mean latency, and approximate percentile upper bounds
+from a logarithmic histogram, plus mean throughput and standard deviation
+across runs. Run each mode on an otherwise idle machine and compare the same
+workload, runtime version, and environment. This harness is a reproducible
+local baseline, not a production load test or evidence of a performance
+advantage.
 
 ## Development
 
