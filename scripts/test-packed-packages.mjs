@@ -8,14 +8,9 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "nestjs-adapter-packed-"));
 const tarballs = join(temporary, "tarballs");
-const consumer = join(temporary, "consumer");
-const uploadDirectory = join(consumer, "uploads");
 
 try {
-  await Promise.all([
-    mkdir(tarballs, { recursive: true }),
-    mkdir(uploadDirectory, { recursive: true }),
-  ]);
+  await mkdir(tarballs, { recursive: true });
   for (const name of ["nestjs-adapter-node", "nestjs-adapter-bun"]) {
     execFileSync("pnpm", ["--filter", name, "pack", "--pack-destination", tarballs], {
       cwd: root,
@@ -29,60 +24,69 @@ try {
   assert.ok(nodeArchive, "Node adapter tarball was not created");
   assert.ok(bunArchive, "Bun adapter tarball was not created");
 
-  const manifest = {
-    private: true,
-    type: "module",
-    dependencies: {
-      "@nestjs/common": "12.1.2",
-      "@nestjs/core": "12.1.2",
-      "nestjs-adapter-node": `file:${join(tarballs, nodeArchive)}`,
-      "nestjs-adapter-bun": `file:${join(tarballs, bunArchive)}`,
-      "reflect-metadata": "0.2.2",
-      rxjs: "7.8.2",
-    },
-    devDependencies: {
-      "@types/bun": "1.4.2",
-      "@types/node": "26.6.4",
-      typescript: "7.0.2",
-    },
-  };
-  await writeFile(join(consumer, "package.json"), JSON.stringify(manifest, null, 2));
-  await writeFile(
-    join(consumer, "tsconfig.json"),
-    JSON.stringify(
-      {
-        compilerOptions: {
-          target: "ES2022",
-          module: "NodeNext",
-          moduleResolution: "NodeNext",
-          types: ["node", "bun"],
-          strict: true,
-          experimentalDecorators: true,
-          emitDecoratorMetadata: true,
-          skipLibCheck: false,
-          outDir: "dist",
-        },
-        include: ["consumer.ts"],
+  for (const [common, core] of [
+    ["10.1.3", "10.2.8"],
+    ["12.1.2", "12.1.2"],
+  ]) {
+    const consumer = join(temporary, `consumer-${core}`);
+    const uploadDirectory = join(consumer, "uploads");
+    await mkdir(uploadDirectory, { recursive: true });
+    const manifest = {
+      private: true,
+      type: "module",
+      dependencies: {
+        "@nestjs/common": common,
+        "@nestjs/core": core,
+        "nestjs-adapter-node": `file:${join(tarballs, nodeArchive)}`,
+        "nestjs-adapter-bun": `file:${join(tarballs, bunArchive)}`,
+        "reflect-metadata": common.startsWith("10.") ? "0.1.13" : "0.2.2",
+        rxjs: "7.8.2",
       },
-      null,
-      2,
-    ),
-  );
-  await writeFile(
-    join(consumer, "consumer.ts"),
-    `import "reflect-metadata";
+      devDependencies: {
+        "@types/bun": "1.4.2",
+        "@types/node": "26.6.4",
+        typescript: "7.0.2",
+      },
+    };
+    await writeFile(join(consumer, "package.json"), JSON.stringify(manifest, null, 2));
+    await writeFile(
+      join(consumer, "tsconfig.json"),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            types: ["node", "bun"],
+            strict: true,
+            experimentalDecorators: true,
+            emitDecoratorMetadata: true,
+            skipLibCheck: false,
+            outDir: "dist",
+          },
+          include: ["consumer.ts"],
+        },
+        null,
+        2,
+      ),
+    );
+    await writeFile(
+      join(consumer, "consumer.ts"),
+      `import "reflect-metadata";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import {
   Body, Controller, Get, Module, Post, UploadedFile, UseInterceptors,
+  type MiddlewareConsumer, type NestModule,
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
-import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest } from "nestjs-adapter-node";
+import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse } from "nestjs-adapter-node";
 import { BunHttpAdapter, FileInterceptor as BunFileInterceptor } from "nestjs-adapter-bun";
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
+const finished: string[] = [];
 const options: NativeAdapterOptions = {
   uploadFileLimit: 1024,
   uploadFilesLimit: 1,
@@ -117,7 +121,18 @@ class HealthController {
   }
 }
 @Module({ controllers: [HealthController] })
-class HealthModule {}
+class HealthModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply((request: NativeRequest, response: NativeResponse, next: () => void) => {
+      assert.equal(request.baseUrl, "");
+      response.raw.once("finish", () => finished.push(request.path));
+      response.cookie("packed", "works", { httpOnly: true });
+      request.secret = "packed-secret";
+      response.cookie("signed", "works", { signed: true, httpOnly: true });
+      next();
+    }).forRoutes("*");
+  }
+}
 
 const adapter =
   process.argv[2] === "bun" ? new BunHttpAdapter(options) : new NodeHttpAdapter(options);
@@ -126,6 +141,8 @@ try {
   await app.listen(0, "127.0.0.1");
   const response = await fetch(\`\${await app.getUrl()}/health\`);
   assert.equal(response.status, 200);
+  assert.ok(response.headers.get("set-cookie")?.includes("packed=works; Path=/; HttpOnly"));
+  assert.ok(response.headers.get("set-cookie")?.includes("signed=s%3Aworks."));
   assert.deepEqual(await response.json(), { ok: true });
 
   const form = new FormData();
@@ -142,23 +159,28 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.deepEqual(await readdir(uploadDirectory), []);
+  for (let attempt = 0; attempt < 100 && finished.length < 2; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(finished, ["/health", "/upload"]);
 } finally {
   await app.close();
 }
-console.log(\`packed package smoke passed on \${process.argv[2]}\`);
+console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
-  );
+    );
 
-  execFileSync("npm", ["install", "--no-audit", "--no-fund"], {
-    cwd: consumer,
-    stdio: "inherit",
-  });
-  execFileSync(join(consumer, "node_modules/.bin/tsc"), ["--project", "tsconfig.json"], {
-    cwd: consumer,
-    stdio: "inherit",
-  });
-  execFileSync("node", ["dist/consumer.js", "node"], { cwd: consumer, stdio: "inherit" });
-  execFileSync("bun", ["dist/consumer.js", "bun"], { cwd: consumer, stdio: "inherit" });
+    execFileSync("npm", ["install", "--no-audit", "--no-fund"], {
+      cwd: consumer,
+      stdio: "inherit",
+    });
+    execFileSync(join(consumer, "node_modules/.bin/tsc"), ["--project", "tsconfig.json"], {
+      cwd: consumer,
+      stdio: "inherit",
+    });
+    execFileSync("node", ["dist/consumer.js", "node"], { cwd: consumer, stdio: "inherit" });
+    execFileSync("bun", ["dist/consumer.js", "bun"], { cwd: consumer, stdio: "inherit" });
+  }
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }

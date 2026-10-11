@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { extname, resolve } from "node:path";
 import { AbstractHttpAdapter } from "@nestjs/core";
-import { LegacyRouteConverter } from "@nestjs/core/internal";
 import {
   HttpException,
   Logger,
@@ -29,7 +28,7 @@ import {
   type BodyKind,
   type NativeRequest,
 } from "./request.js";
-import { NativeResponse } from "./response.js";
+import { NativeResponse, writeCookie, type CookieSerializeOptions } from "./response.js";
 import { parseDiskMultipart } from "./multipart.js";
 import { compileTrust, type TrustFunction, type TrustProxy } from "./proxy.js";
 import { serveStatic, type StaticAssetsOptions } from "./static.js";
@@ -338,6 +337,32 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   appendHeader(response: NativeResponse, name: string, value: string): NativeResponse {
     return response.appendHeader(name, value);
   }
+  setCookie(
+    response: NativeResponse,
+    name: string,
+    value: string,
+    options: CookieSerializeOptions = {},
+  ): NativeResponse {
+    if (typeof AbstractHttpAdapter.prototype.setCookie === "function") {
+      return super.setCookie(response, name, value, options);
+    }
+    return writeCookie(response, name, value, options);
+  }
+  clearCookie(
+    response: NativeResponse,
+    name: string,
+    options: CookieSerializeOptions = {},
+  ): NativeResponse {
+    if (typeof AbstractHttpAdapter.prototype.clearCookie === "function") {
+      return super.clearCookie(response, name, options);
+    }
+    return writeCookie(response, name, "", {
+      ...options,
+      signed: false,
+      maxAge: 0,
+      expires: new Date(0),
+    });
+  }
   setErrorHandler(handler: ErrorHandler): void {
     this.errorHandler = handler;
   }
@@ -438,7 +463,17 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     };
   }
   normalizePath(path: string): string {
-    const converted = LegacyRouteConverter.tryConvert(path);
+    let converted = path.replace(/\/$/, "") || "/";
+    if (converted === "*" || converted === "(.*)") converted = "/{*path}";
+    else {
+      converted = converted
+        .replace(/\/(?:\*|\(\.\*\))$/, "/{*path}")
+        .replace(/\/\+$/, "/*path")
+        .replace(/\/\*(?=\/)/g, (_segment, offset: number) => `/*path${offset}`);
+    }
+    if (converted !== path.replace(/\/$/, "") && path !== "/" && converted !== "/{*path}") {
+      Logger.warn(`Converted legacy route "${path}" to "${converted}".`, "NativeHttpAdapter");
+    }
     return converted.length > 1 ? converted.replace(/\/$/, "") : converted;
   }
   /**

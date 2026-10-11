@@ -5,6 +5,8 @@ import { BadRequestException, PayloadTooLargeException } from "@nestjs/common";
 import { hostnameOf, resolveProxy, type ProxyView, type TrustFunction } from "./proxy.js";
 
 export interface NativeRequest {
+  /** Native middleware is not mounted on a separate Express sub-application. */
+  readonly baseUrl: string;
   raw: Request;
   method: string;
   url: string;
@@ -216,6 +218,7 @@ export interface ClientConnection {
  * handling; without one they describe the connection.
  */
 export abstract class ClientRequest {
+  readonly baseUrl = "";
   abstract readonly headers: IncomingHttpHeaders;
   #view: ProxyView | undefined;
 

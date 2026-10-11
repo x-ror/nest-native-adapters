@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "busboy": "^1.6.0",
+    "cookie": "catalog:",
     "path-to-regexp": "catalog:"
   },
   "peerDependencies": {

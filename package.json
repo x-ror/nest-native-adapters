@@ -41,6 +41,7 @@
     "busboy": "^1.6.0",
     "class-transformer": "catalog:",
     "class-validator": "catalog:",
+    "cookie": "catalog:",
     "cookie-parser": "catalog:",
     "nestjs-adapter-bun": "workspace:*",
     "nestjs-adapter-node": "workspace:*",

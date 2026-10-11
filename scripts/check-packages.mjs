@@ -14,7 +14,7 @@ for (const name of ["platform-node", "platform-bun"]) {
   assert.ok(manifest.peerDependencies["@nestjs/core"]);
   for (const dependency of Object.keys(manifest.dependencies ?? {})) {
     assert.ok(
-      dependency === "path-to-regexp" || dependency === "busboy",
+      dependency === "path-to-regexp" || dependency === "busboy" || dependency === "cookie",
       `${name}: unexpected dependency ${dependency}`,
     );
   }

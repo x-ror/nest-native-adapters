@@ -243,6 +243,27 @@ describe("native router static route index", () => {
 });
 
 describe("native Nest adapters", () => {
+  it("forwards buffered response completion to listeners on raw", async () => {
+    const response = new NativeResponse("GET");
+    const events: string[] = [];
+    response.raw.once("finish", () => events.push("finish"));
+    response.raw.once("close", () => events.push("close"));
+    response.json({ ok: true });
+    await response.done;
+    expect(events).toEqual(["finish", "close"]);
+  });
+
+  it("normalizes legacy Nest middleware wildcard segments without private core imports", () => {
+    const adapter = new NodeHttpAdapter();
+    expect(adapter.normalizePath("*")).toBe("/{*path}");
+    expect(adapter.normalizePath("(.*)")).toBe("/{*path}");
+    expect(adapter.normalizePath("/api/*/")).toBe("/api/{*path}");
+    expect(adapter.normalizePath("/api/(.*)")).toBe("/api/{*path}");
+    expect(adapter.normalizePath("/api/+")).toBe("/api/*path");
+    expect(adapter.normalizePath("/api/*/*/end")).toBe("/api/*path4/*path6/end");
+    expect(adapter.normalizePath("/api/:id")).toBe("/api/:id");
+  });
+
   it("sets full response MIME types without accepting extension shorthands", async () => {
     const response = new NativeResponse("GET");
     expect(response.type("application/json")).toBe(response);

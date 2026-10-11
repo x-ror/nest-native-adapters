@@ -2,9 +2,10 @@ import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
 import { STATUS_CODES } from "node:http";
-import { StreamableFile, type CookieSerializeOptions } from "@nestjs/common";
+import { StreamableFile } from "@nestjs/common";
+import { createHmac } from "node:crypto";
+import { serialize, type SerializeOptions } from "cookie";
 import { AbstractHttpAdapter } from "@nestjs/core";
-import { CookieSigner } from "@nestjs/core/helpers/cookies/cookie-signer.js";
 import { NullObject, type NativeRequest } from "./request.js";
 
 class NativeSseResponse extends PassThrough {
@@ -27,6 +28,11 @@ class NativeSseResponse extends PassThrough {
 
 type OutgoingHeaders = Record<string, number | string | readonly string[]>;
 export type ResponseBody = string | Uint8Array | Readable | Blob | null;
+/** Cookie attributes shared by Nest 10 and 12; `maxAge` is in seconds. */
+export interface CookieSerializeOptions extends Omit<SerializeOptions, "encode" | "sameSite"> {
+  sameSite?: "strict" | "lax" | "none";
+  signed?: boolean;
+}
 /** Express `res.cookie()` options: `maxAge` is in **milliseconds** here. */
 export interface ResponseCookieOptions extends Omit<
   CookieSerializeOptions,
@@ -56,12 +62,15 @@ export interface CookieWriter {
 }
 
 /**
- * For responses created outside an adapter: Nest's own `setCookie()` with no
- * signer, so serialization rules and error messages are exactly Nest's.
+ * Detached responses use Nest 12's serializer when available, or the same
+ * cookie writer as the Nest 10 adapter.
  */
 const detachedCookieWriter: CookieWriter = {
-  setCookie: (response, name, value, options) =>
-    AbstractHttpAdapter.prototype.setCookie.call(
+  setCookie: (response, name, value, options) => {
+    if (typeof AbstractHttpAdapter.prototype.setCookie !== "function") {
+      return writeCookie(response, name, value, options);
+    }
+    return AbstractHttpAdapter.prototype.setCookie.call(
       {
         appendHeader: (target: NativeResponse, header: string, text: string) =>
           target.appendHeader(header, text),
@@ -70,8 +79,27 @@ const detachedCookieWriter: CookieWriter = {
       name,
       value,
       options,
-    ),
+    );
+  },
 };
+
+/** Nest 10 has no adapter cookie API; cookie-parser still handles signing on the request. */
+export function writeCookie(
+  response: NativeResponse,
+  name: string,
+  value: string,
+  options: CookieSerializeOptions = {},
+): NativeResponse {
+  if (options.signed) {
+    throw new Error(
+      `Cannot sign cookie "${name}": no cookie secret is configured. Use cookie-parser on Nest 10.`,
+    );
+  }
+  if ((options.sameSite === "none" || options.partitioned) && !options.secure) {
+    throw new TypeError("SameSite=None and Partitioned cookies require secure: true.");
+  }
+  return response.appendHeader("set-cookie", serialize(name, value, { path: "/", ...options }));
+}
 
 export class NativeResponse {
   statusCode = 200;
@@ -226,7 +254,11 @@ export class NativeResponse {
     let text = typeof value === "object" ? `j:${JSON.stringify(value)}` : String(value);
     const parserSecret = this.#request?.secret;
     if (attributes.signed && typeof parserSecret === "string" && parserSecret) {
-      text = new CookieSigner(parserSecret).sign(text);
+      const signature = createHmac("sha256", parserSecret)
+        .update(text)
+        .digest("base64")
+        .replace(/=+$/, "");
+      text = `s:${text}.${signature}`;
       attributes.signed = false;
     }
     this.#cookies.setCookie(this, name, text, attributes);
@@ -392,6 +424,12 @@ export class NativeResponse {
     }
     try {
       this.commit(body);
+      // Middleware may observe raw without using it as the outgoing stream.
+      if (this.sse && !streamed) {
+        const raw = this.sse;
+        this.once("finish", () => raw.emit("finish"));
+        this.once("close", () => raw.emit("close"));
+      }
     } catch (error) {
       // Typically an invalid header: drop them all so an error response can be sent.
       for (const name in headers) delete headers[name];

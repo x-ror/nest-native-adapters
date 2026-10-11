@@ -11,6 +11,8 @@ version and one changelog. The format follows
 - Shared Node/Bun integration coverage for transformed and validated DTOs,
   guards, injected exception filters, asynchronous service errors, response
   interceptors, Swagger documents/UI assets, and memory/disk upload decorators.
+- Nest 10 peer support and strict packed-consumer checks on Nest 10.1.3/common
+  with 10.2.8/core and on Nest 12.1.2, using both Node and Bun.
 
 ### Fixed
 
@@ -20,6 +22,10 @@ version and one changelog. The format follows
 - Packed-consumer checks validate declarations without `skipLibCheck`.
 - Swagger response handlers no longer fail because `res.type()` was missing.
   `NativeResponse.type()` accepts full MIME types, not extension shorthands.
+- Removed hard runtime imports of Nest 12-only internal route/cookie helpers;
+  common legacy middleware wildcards and cookie-parser signing work on Nest 10.
+- Buffered response completion reaches `response.raw` listeners, and requests
+  expose an empty `baseUrl` for Express-style metrics middleware.
 
 ## [0.1.1] - 2026-10-11
 
