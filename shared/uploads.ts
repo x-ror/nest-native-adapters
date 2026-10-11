@@ -86,6 +86,12 @@ function reject(request: UploadRequest, body: Record<string, unknown>, allowed: 
   if (unexpected !== undefined) throw new BadRequestException(`Unexpected field - ${unexpected}`);
 }
 
+function validateMaxCount(maxCount: number): void {
+  if (maxCount !== Infinity && (!Number.isSafeInteger(maxCount) || maxCount < 0)) {
+    throw new TypeError("maxCount must be a nonnegative integer or Infinity.");
+  }
+}
+
 /** Like Multer's `FileInterceptor`: one file from `fieldName` for `@UploadedFile()`. */
 export function FileInterceptor(fieldName: string): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
@@ -98,6 +104,7 @@ export function FileInterceptor(fieldName: string): Type<NestInterceptor> {
 
 /** Like Multer's `FilesInterceptor`: every file from `fieldName` for `@UploadedFiles()`. */
 export function FilesInterceptor(fieldName: string, maxCount = Infinity): Type<NestInterceptor> {
+  validateMaxCount(maxCount);
   return uploadInterceptor(async (request, body) => {
     reject(request, body, [fieldName]);
     const files = await takeFiles(request, body, fieldName);
@@ -110,6 +117,7 @@ export function FilesInterceptor(fieldName: string, maxCount = Infinity): Type<N
 export function FileFieldsInterceptor(
   fields: { name: string; maxCount?: number }[],
 ): Type<NestInterceptor> {
+  for (const { maxCount = Infinity } of fields) validateMaxCount(maxCount);
   return uploadInterceptor(async (request, body) => {
     reject(
       request,

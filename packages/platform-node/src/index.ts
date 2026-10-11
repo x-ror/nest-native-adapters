@@ -74,8 +74,8 @@ class NodeRequest extends ClientRequest implements NativeRequest {
     this.search = queryStart === -1 ? "" : url.slice(queryStart + 1);
   }
 
-  get headers(): Record<string, string> {
-    return this.incoming.headers as Record<string, string>;
+  get headers() {
+    return this.incoming.headers;
   }
   protected connection(): ClientConnection {
     const { headers, socket } = this.incoming;

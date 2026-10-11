@@ -6,6 +6,13 @@ version and one changelog. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Request types expose optional upload interceptor fields and accurately type
+  missing/array-valued headers and potentially absent hostnames.
+- Upload interceptors reject invalid `maxCount` configuration.
+- Packed-consumer checks validate declarations without `skipLibCheck`.
+
 ## [0.1.1] - 2026-10-11
 
 ### Changed

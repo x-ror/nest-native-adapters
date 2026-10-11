@@ -1,4 +1,6 @@
 import { isIP } from "node:net";
+import type { IncomingHttpHeaders } from "node:http";
+import type { UploadedFile } from "./uploads.js";
 import { BadRequestException, PayloadTooLargeException } from "@nestjs/common";
 import { hostnameOf, resolveProxy, type ProxyView, type TrustFunction } from "./proxy.js";
 
@@ -12,7 +14,7 @@ export interface NativeRequest {
    * The `Host` header without its port, or `X-Forwarded-Host` from a trusted
    * proxy; `undefined` when a trusted proxy sends an empty one, as on Express.
    */
-  hostname: string;
+  hostname: string | undefined;
   /** `http`/`https`, or `X-Forwarded-Proto` from a trusted proxy. */
   protocol: string;
   /** The client address: the socket peer, or the nearest untrusted `X-Forwarded-For` entry. */
@@ -28,12 +30,14 @@ export interface NativeRequest {
    * `subdomain offset` setting (default 2). Empty for IP addresses.
    */
   readonly subdomains: string[];
-  headers: Record<string, string>;
+  headers: IncomingHttpHeaders;
   params: Record<string, string | string[]>;
   query: Record<string, string | string[]>;
   body?: unknown;
   rawBody?: Buffer;
   uploads?: DiskUploadFile[];
+  file?: UploadedFile;
+  files?: UploadedFile[] | Record<string, UploadedFile[]>;
   /**
    * Set by `cookie-parser` when the application installs it, exactly as on
    * Express. Nest's `@Cookies()` and `@SignedCookies()` do not need it.
@@ -212,7 +216,7 @@ export interface ClientConnection {
  * handling; without one they describe the connection.
  */
 export abstract class ClientRequest {
-  abstract readonly headers: Record<string, string>;
+  abstract readonly headers: IncomingHttpHeaders;
   #view: ProxyView | undefined;
 
   constructor(
@@ -231,9 +235,9 @@ export abstract class ClientRequest {
         socketAddress,
         protocol,
         host,
-        forwardedFor: headers["x-forwarded-for"],
-        forwardedProto: headers["x-forwarded-proto"],
-        forwardedHost: headers["x-forwarded-host"],
+        forwardedFor: headerText(headers["x-forwarded-for"]),
+        forwardedProto: headerText(headers["x-forwarded-proto"]),
+        forwardedHost: headerText(headers["x-forwarded-host"]),
       },
       this.trust!,
     ));
@@ -257,14 +261,19 @@ export abstract class ClientRequest {
    * The host without its port. A request without a Host header reports
    * `localhost`; an empty trusted `X-Forwarded-Host` gives `undefined`, as on Express.
    */
-  get hostname(): string {
+  get hostname(): string | undefined {
     const host = this.host;
     if (host === undefined && this.connection().host === undefined) return "localhost";
-    return hostnameOf(host)!;
+    return hostnameOf(host);
   }
+
   get subdomains(): string[] {
     return subdomainsOf(this.hostname, this.subdomainOffset);
   }
+}
+
+function headerText(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value.join(", ") : value;
 }
 
 /** Request facade over a fetch `Request`; URL parts are sliced without a reparse. */

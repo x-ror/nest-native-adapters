@@ -41,6 +41,7 @@ try {
       rxjs: "7.8.2",
     },
     devDependencies: {
+      "@types/bun": "1.4.2",
       "@types/node": "26.6.4",
       typescript: "7.0.2",
     },
@@ -54,11 +55,11 @@ try {
           target: "ES2022",
           module: "NodeNext",
           moduleResolution: "NodeNext",
-          types: ["node"],
+          types: ["node", "bun"],
           strict: true,
           experimentalDecorators: true,
           emitDecoratorMetadata: true,
-          skipLibCheck: true,
+          skipLibCheck: false,
           outDir: "dist",
         },
         include: ["consumer.ts"],
@@ -77,7 +78,7 @@ import {
 } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
-import type { DiskUploadedFileData, NativeAdapterOptions } from "nestjs-adapter-node";
+import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest } from "nestjs-adapter-node";
 import { BunHttpAdapter, FileInterceptor as BunFileInterceptor } from "nestjs-adapter-bun";
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
@@ -89,6 +90,14 @@ const options: NativeAdapterOptions = {
 };
 const describeDiskFile = (file: DiskUploadedFileData): number => file.size;
 const describeBunUpload = (file: BunUploadedFile): number => file.size;
+const describeRequest = (request: NativeRequest) => {
+  const header: string | string[] | undefined = request.headers["x-custom"];
+  const hostname: string | undefined = request.hostname;
+  const file: number | undefined = request.file?.size;
+  const files = request.files;
+  return { header, hostname, file, files };
+};
+assert.equal(typeof describeRequest, "function");
 assert.equal(typeof describeDiskFile, "function");
 assert.equal(typeof describeBunUpload, "function");
 

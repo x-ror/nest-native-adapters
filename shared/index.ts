@@ -292,7 +292,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     return body ? readWebBody(body, limit) : null;
   }
   getRequestHostname(request: NativeRequest): string {
-    return request.hostname;
+    return request.hostname!;
   }
   getRequestMethod(request: NativeRequest): string {
     return request.method;

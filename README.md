@@ -506,6 +506,11 @@ pnpm run dev
 
 `test:packed` installs both built tarballs into a clean temporary Nest project,
 type-checks its public imports and runs a multipart upload on Node and Bun.
+Declaration checks run with `skipLibCheck: false`. TypeScript consumers need
+`@types/node`; consumers importing the Bun adapter also need `@types/bun`.
+`NativeRequest.headers` uses Node's `IncomingHttpHeaders` shape: arbitrary
+headers may be strings, arrays, or absent. `hostname` can be absent, and
+`file`/`files` are optional fields populated by upload interceptors.
 `dev` watches the Node example; `vp run build` builds both example entrypoints.
 Run `bun dist/bun.js` for the Bun example. Both expose `/hello/world` on port 3000.
 Dependency versions live in `pnpm-workspace.yaml` catalogs. The pnpm version is pinned

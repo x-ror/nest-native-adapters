@@ -236,6 +236,7 @@ function isPreconditionFailure(req: NativeRequest, res: NativeResponse): boolean
 function isRangeFresh(req: NativeRequest, res: NativeResponse): boolean {
   const ifRange = req.headers["if-range"];
   if (!ifRange) return true;
+  if (Array.isArray(ifRange)) return false;
   if (ifRange.includes('"')) {
     const etag = res.getHeader("etag") as string | undefined;
     return Boolean(etag && ifRange.includes(etag));

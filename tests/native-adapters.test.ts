@@ -40,6 +40,7 @@ import { io as connect } from "socket.io-client";
 import { WebSocket } from "ws";
 import {
   FileInterceptor,
+  FileFieldsInterceptor,
   FilesInterceptor,
   NodeHttpAdapter,
   NativeResponse,
@@ -1409,6 +1410,12 @@ describe("native Nest adapters", () => {
     }
   });
   it("enforces per-file and file-count limits with in-memory multipart parsing", async () => {
+    for (const maxCount of [NaN, -1, 1.5, -Infinity]) {
+      expect(() => FilesInterceptor("files", maxCount)).toThrow("maxCount");
+      expect(() => FileFieldsInterceptor([{ name: "files", maxCount }])).toThrow("maxCount");
+    }
+    expect(() => FilesInterceptor("files", 0)).not.toThrow();
+    expect(() => FilesInterceptor("files", Infinity)).not.toThrow();
     expect(() => new NodeHttpAdapter({ uploadFileLimit: 0 })).toThrow(
       "uploadFileLimit must be a positive integer",
     );
