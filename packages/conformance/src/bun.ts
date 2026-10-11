@@ -11,7 +11,7 @@ import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { io as connect } from "socket.io-client";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { connect as connectSocket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,12 @@ class StreamingUploadController {
   @Post()
   @UseInterceptors(FileInterceptor("upload"))
   receive(@UploadedFile() file: DiskUploadedFileData, @Body() body: Record<string, unknown>) {
-    return { filename: file.originalname, size: statSync(file.path).size, body };
+    return {
+      filename: file.originalname,
+      size: statSync(file.path).size,
+      path: file.path,
+      body,
+    };
   }
 }
 @Module({ controllers: [StreamingUploadController] })
@@ -137,11 +142,25 @@ if (spawnSync("openssl", ["version"]).error) {
       new Request("http://localhost/stream-upload", { method: "POST", body: form }),
     );
     assert.equal(response.status, 201);
-    assert.deepEqual(await response.json(), {
+    const uploaded = (await response.json()) as {
+      filename: string;
+      size: number;
+      path: string;
+      body: Record<string, unknown>;
+    };
+    assert.deepEqual(uploaded, {
       filename: "large.bin",
       size: 1024 * 1024,
+      path: uploaded.path,
       body: { note: "streamed" },
     });
+    assert.ok(uploaded.path.startsWith(directory));
+    let cleaned = false;
+    for (let attempt = 0; attempt < 100 && !cleaned; attempt++) {
+      cleaned = readdirSync(directory).length === 0;
+      if (!cleaned) await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(cleaned, true, "temporary multipart files should be removed after the response");
   } finally {
     await uploadApp.close();
     rmSync(directory, { recursive: true, force: true });
