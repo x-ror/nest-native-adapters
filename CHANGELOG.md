@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed middleware/global-prefix exclusion coverage on Nest 10/11/12 and
+  Node/Bun: method-specific and parameterized paths, all-method exclusions,
+  query strings, middleware ordering and absence of unintended route aliases.
+
 - Packed disk-upload cleanup coverage for guard/validator rejection, handler
   errors, malformed multipart, size/count limits and mixed concurrent requests
   on Nest 10/11/12 and Node/Bun.

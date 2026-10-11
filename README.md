@@ -159,6 +159,18 @@ exact body-limit boundaries and recovery after malformed/oversized bodies.
 
 ## Current scope
 
+Nest middleware exclusions and global-prefix exclusions are separate:
+`consumer.apply(...).exclude(...).forRoutes(...)` skips only that middleware,
+whereas `app.setGlobalPrefix("api", { exclude: [...] })` leaves matching routes
+unprefixed. An exclusion with `RequestMethod.GET` does not also exclude POST
+on the same path. Use unprefixed paths in both configurations.
+
+The packed matrix covers method-specific exclusions, parameterized paths,
+string exclusions for all methods, query strings, middleware registration
+order and rejection of unintended unprefixed/prefixed route aliases on
+Nest 10/11/12 and Node/Bun. For example, excluding GET `health` from the
+global prefix serves GET `/health`, while POST remains at `/api/health`.
+
 Supported: HTTP routing with `path-to-regexp` 8 syntax, named parameters and
 wildcards; literal routes use an exact-path index while preserving registration
 order with dynamic routes and middleware. Query strings (repeated keys become

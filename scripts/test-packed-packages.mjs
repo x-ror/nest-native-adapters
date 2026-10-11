@@ -85,7 +85,7 @@ import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   Body, Catch, ConflictException, Controller, Get, Inject, Injectable, MaxFileSizeValidator,
-  Module, Param, ParseFilePipe, Post, Req, Scope, Sse, StreamableFile,
+  Module, Param, ParseFilePipe, Post, Req, RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
@@ -771,6 +771,92 @@ for (const kind of ["graceful", "timeout", "forced"] as const) {
     await (closing ?? app.close());
     reader?.releaseLock();
   }
+}
+const middlewareVisits: string[] = [];
+@Controller("access")
+class AccessController {
+  @Get("public/:id")
+  publicGet(@Param("id") id: string) { return { id }; }
+  @Post("public/:id")
+  publicPost(@Param("id") id: string) { return { id }; }
+  @Get("private/:id")
+  privateGet(@Param("id") id: string) { return { id }; }
+  @Get("bypass/:id")
+  bypassGet(@Param("id") id: string) { return { id }; }
+  @Post("bypass/:id")
+  bypassPost(@Param("id") id: string) { return { id }; }
+}
+@Controller("health")
+class PublicHealthController {
+  @Get()
+  get() { return { health: true }; }
+  @Post()
+  post() { return { health: true }; }
+}
+@Module({ controllers: [AccessController, PublicHealthController] })
+class AccessModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply((request: NativeRequest, response: NativeResponse, next: () => void) => {
+      middlewareVisits.push(\`trace:\${request.method}:\${request.path}\`);
+      response.header("x-trace", "fixture");
+      next();
+    }).forRoutes("*");
+    consumer.apply((request: NativeRequest, response: NativeResponse, next: () => void) => {
+      middlewareVisits.push(\`auth:\${request.method}:\${request.path}\`);
+      response.header("x-auth-middleware", "checked");
+      if (request.headers["x-auth"] !== "yes") {
+        response.status(401).json({ denied: true });
+        return;
+      }
+      next();
+    }).exclude(
+      { path: "access/public/:id", method: RequestMethod.GET },
+      { path: "health", method: RequestMethod.GET },
+      "access/bypass/:id",
+    ).forRoutes(AccessController, PublicHealthController);
+  }
+}
+const accessAdapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+const accessApp = await NestFactory.create(AccessModule, accessAdapter, { logger: false });
+try {
+  accessApp.setGlobalPrefix("api", {
+    exclude: [{ path: "health", method: RequestMethod.GET }],
+  });
+  await accessApp.listen(0, "127.0.0.1");
+  const base = await accessApp.getUrl();
+  for (const [path, method, auth, status, checked, body] of [
+    ["/health", "GET", false, 200, false, { health: true }],
+    ["/api/health", "POST", false, 401, true, { denied: true }],
+    ["/api/health", "POST", true, 201, true, { health: true }],
+    ["/api/access/public/42?fixture=1", "GET", false, 200, false, { id: "42" }],
+    ["/api/access/public/42", "POST", false, 401, true, { denied: true }],
+    ["/api/access/public/42", "POST", true, 201, true, { id: "42" }],
+    ["/api/access/private/7", "GET", false, 401, true, { denied: true }],
+    ["/api/access/private/7", "GET", true, 200, true, { id: "7" }],
+    ["/api/access/bypass/7", "GET", false, 200, false, { id: "7" }],
+    ["/api/access/bypass/7", "POST", false, 201, false, { id: "7" }],
+  ] as const) {
+    const before = middlewareVisits.length;
+    const response = await fetch(\`\${base}\${path}\`, {
+      method, headers: auth ? { "x-auth": "yes" } : {},
+    });
+    assert.equal(response.status, status, \`Middleware exclusions: \${method} \${path}\`);
+    assert.deepEqual(await response.json(), body);
+    assert.equal(response.headers.get("x-trace"), "fixture");
+    assert.equal(response.headers.get("x-auth-middleware"), checked ? "checked" : null);
+    const requestPath = path.split("?")[0];
+    assert.deepEqual(middlewareVisits.slice(before), [
+      \`trace:\${method}:\${requestPath}\`,
+      ...(checked ? [\`auth:\${method}:\${requestPath}\`] : []),
+    ], "Exclusions must skip only their middleware and preserve registration order");
+  }
+  for (const path of ["/api/health", "/health/extra", "/access/public/42"]) {
+    const response = await fetch(\`\${base}\${path}\`);
+    assert.equal(response.status, 404, \`Prefix exclusions must not create aliases: \${path}\`);
+    await response.text();
+  }
+} finally {
+  await accessApp.close();
 }
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
