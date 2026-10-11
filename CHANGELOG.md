@@ -6,6 +6,8 @@ version and one changelog. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-11
+
 First npm release. Supported baseline: NestJS 12.1.2, Node.js 22+, Bun 1.4+.
 
 ### Added

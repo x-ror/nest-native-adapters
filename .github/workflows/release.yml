@@ -24,6 +24,7 @@ jobs:
       - run: pnpm run check
       - run: pnpm run test
       - run: pnpm run test:bun
+      - run: pnpm run test:packed
       # The tag must name the version both packages carry.
       - run: node scripts/check-packages.mjs --release "${GITHUB_REF_NAME#v}"
 
