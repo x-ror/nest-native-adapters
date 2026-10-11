@@ -159,6 +159,18 @@ exact body-limit boundaries and recovery after malformed/oversized bodies.
 
 ## Current scope
 
+Use `@Res({ passthrough: true })` when setting headers/cookies or a status
+while returning a value for Nest to serialize. `ClassSerializerInterceptor`
+still applies to returned class instances (including `@Exclude()` fields).
+With plain `@Res()`, the handler owns the response: call `json()`, `send()`
+or `end()`; Nest does not automatically send the returned value, and
+serialization does not apply to data you send manually.
+
+The packed matrix covers asynchronous passthrough/manual responses, cookie/
+header preservation, serialization, empty HTTP 204 responses, dynamic
+`@Redirect()` overrides and JSON exception responses after setting a non-JSON
+content type, on Nest 10/11/12 and Node/Bun.
+
 Nest middleware exclusions and global-prefix exclusions are separate:
 `consumer.apply(...).exclude(...).forRoutes(...)` skips only that middleware,
 whereas `app.setGlobalPrefix("api", { exclude: [...] })` leaves matching routes

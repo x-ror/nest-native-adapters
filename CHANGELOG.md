@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed response-contract coverage on Nest 10/11/12 and Node/Bun:
+  asynchronous manual/passthrough responses, class serialization with excluded
+  fields, cookies/headers, HTTP 204, dynamic redirects and exception content types.
+
 - Packed middleware/global-prefix exclusion coverage on Nest 10/11/12 and
   Node/Bun: method-specific and parameterized paths, all-method exclusions,
   query strings, middleware ordering and absence of unintended route aliases.

@@ -84,8 +84,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, ConflictException, Controller, Get, Inject, Injectable, MaxFileSizeValidator,
-  Module, Param, ParseFilePipe, Post, Req, RequestMethod, Scope, Sse, StreamableFile,
+  Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HttpCode, Inject,
+  Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Req, Res,
+  RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
@@ -94,7 +95,7 @@ import {
 } from "@nestjs/common";
 import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
-import { Type } from "class-transformer";
+import { Exclude, Type } from "class-transformer";
 import { IsInt, Min } from "class-validator";
 import { NestFactory, REQUEST } from "@nestjs/core";
 import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
@@ -237,6 +238,11 @@ assert.equal(typeof describeRequest, "function");
 assert.equal(typeof describeDiskFile, "function");
 assert.equal(typeof describeBunUpload, "function");
 
+class PublicAccount {
+  readonly name = "fixture";
+  @Exclude()
+  readonly secret = "must-not-be-serialized";
+}
 @Controller()
 class HealthController {
   @Get("health")
@@ -265,6 +271,43 @@ class HealthController {
   @Get("stream")
   stream() {
     return new StreamableFile(Readable.from(["packed ", "stream"]));
+  }
+
+  @Get("response/passthrough")
+  @UseInterceptors(ClassSerializerInterceptor)
+  async passthrough(@Res({ passthrough: true }) response: NativeResponse) {
+    response.status(202).header("x-response-mode", "passthrough");
+    response.cookie("response-session", "fixture", { httpOnly: true });
+    await delay(5);
+    return new PublicAccount();
+  }
+
+  @Get("response/manual")
+  @UseInterceptors(ClassSerializerInterceptor)
+  async manual(@Res() response: NativeResponse) {
+    await delay(5);
+    response.status(202).header("x-response-mode", "manual").json({ manual: true });
+    return { ignored: true };
+  }
+
+  @Get("response/empty")
+  @HttpCode(204)
+  empty(@Res({ passthrough: true }) response: NativeResponse) {
+    response.header("x-response-mode", "empty").type("application/json");
+    return { ignored: true };
+  }
+
+  @Get("response/redirect")
+  @Redirect("/api/health", 302)
+  redirect() {
+    return { url: "/api/response/passthrough", statusCode: 303 };
+  }
+
+  @Get("response/failure")
+  async responseFailure(@Res({ passthrough: true }) response: NativeResponse) {
+    response.header("x-response-mode", "failure").type("text/plain");
+    await delay(5);
+    throw new ConflictException("fixture response failure");
   }
 
   @Post("upload")
@@ -394,6 +437,32 @@ try {
   });
   assert.equal(cors.status, 204);
   assert.equal(cors.headers.get("access-control-allow-origin"), "*");
+  const passthrough = await fetch(\`\${base}/response/passthrough\`);
+  assert.equal(passthrough.status, 202);
+  assert.equal(passthrough.headers.get("x-response-mode"), "passthrough");
+  assert.ok(passthrough.headers.get("set-cookie")?.includes("response-session=fixture"));
+  assert.deepEqual(await passthrough.json(), { name: "fixture" },
+    "Passthrough responses must still run class serialization");
+  const manual = await fetch(\`\${base}/response/manual\`, { signal: AbortSignal.timeout(2000) });
+  assert.equal(manual.status, 202);
+  assert.equal(manual.headers.get("x-response-mode"), "manual");
+  assert.deepEqual(await manual.json(), { manual: true },
+    "Nest must not send the returned value after a manual response");
+  const empty = await fetch(\`\${base}/response/empty\`);
+  assert.equal(empty.status, 204);
+  assert.equal(empty.headers.get("x-response-mode"), "empty");
+  assert.equal(empty.headers.get("content-type"), null);
+  assert.equal(empty.headers.get("content-length"), null);
+  assert.equal(await empty.text(), "");
+  const redirect = await fetch(\`\${base}/response/redirect\`, { redirect: "manual" });
+  assert.equal(redirect.status, 303);
+  assert.equal(redirect.headers.get("location"), "/api/response/passthrough");
+  await redirect.text();
+  const failedResponse = await fetch(\`\${base}/response/failure\`);
+  assert.equal(failedResponse.status, 409);
+  assert.equal(failedResponse.headers.get("x-response-mode"), "failure");
+  assert.match(failedResponse.headers.get("content-type") ?? "", /application\\/json/);
+  assert.equal((await failedResponse.json()).message, "fixture response failure");
   const scopedIds = new Set<number>();
   const scoped = async (requestId: string, auth = "yes") => {
     const response = await fetch(\`\${base}/scoped\`, {
