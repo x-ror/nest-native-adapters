@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Signed webhook coverage on Nest 10/11/12 and Node/Bun: exact `rawBody`
+  bytes for JSON, custom content types, binary and chunked UTF-8; signature
+  rejection, byte-counted body limits, parser-error recovery and concurrency.
+
 - Packed HTTP coverage for request-scoped DI and scope bubbling on Nest
   10/11/12, sharing one provider across middleware, guards, interceptors,
   filters and controllers while isolating sequential and concurrent requests.

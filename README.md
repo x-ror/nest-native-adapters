@@ -134,6 +134,29 @@ TypeScript 7 tooling is outside that range, despite the runtime scenario passing
 `NativeResponse.type()` supports full MIME strings such as `application/json`
 and `text/html`, but rejects Express extension shorthands such as `"json"`.
 
+## Signed webhooks
+
+Pass `rawBody: true` to `NestFactory.create()` to retain the original payload
+as a `Buffer` on `NativeRequest.rawBody`, while still parsing JSON into
+`request.body`. Verify webhook signatures against that buffer, not
+`JSON.stringify(request.body)`: whitespace, line endings and Unicode encoding
+are part of the signed bytes.
+
+```ts
+const app = await NestFactory.create(AppModule, new NodeHttpAdapter({ bodyLimit: 1024 * 1024 }), {
+  rawBody: true,
+});
+```
+
+The same option works with `BunHttpAdapter`. For a custom JSON content type,
+register `app.useBodyParser("json", { type: "application/vnd.example+json" })`;
+Nest forwards the application's `rawBody` option to the parser. Binary payloads
+require `app.useBodyParser("raw")`. Keep body parsing enabled for these parsers.
+Limits count bytes, not characters, and apply before the controller is called.
+The packed matrix covers HMAC verification, multibyte UTF-8 split across
+chunked uploads, custom JSON/binary content types, invalid signatures,
+exact body-limit boundaries and recovery after malformed/oversized bodies.
+
 ## Current scope
 
 Supported: HTTP routing with `path-to-regexp` 8 syntax, named parameters and

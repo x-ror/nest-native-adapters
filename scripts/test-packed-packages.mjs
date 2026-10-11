@@ -80,9 +80,11 @@ try {
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Scope, StreamableFile,
+  Body, Catch, Controller, Get, Inject, Injectable, Module, Param, Post, Req, Scope, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
@@ -371,6 +373,119 @@ try {
 } finally {
   await app.close();
 }
+const webhookSecret = "fixture-only-webhook-secret";
+const sign = (bytes: Uint8Array) => createHmac("sha256", webhookSecret).update(bytes).digest("hex");
+let acceptedWebhooks = 0;
+@Injectable()
+class SignatureGuard implements CanActivate {
+  canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    const signature = request.headers["x-signature"];
+    if (!Buffer.isBuffer(request.rawBody) || typeof signature !== "string" ||
+        !/^[a-f0-9]{64}$/.test(signature) ||
+        !timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(sign(request.rawBody), "hex"))) {
+      throw new UnauthorizedException();
+    }
+    return true;
+  }
+}
+@Controller("webhook")
+@UseGuards(SignatureGuard)
+class WebhookController {
+  @Post()
+  receive(@Req() request: NativeRequest, @Body() body: unknown) {
+    assert.ok(Buffer.isBuffer(request.rawBody));
+    acceptedWebhooks++;
+    return {
+      raw: request.rawBody.toString("hex"),
+      body: Buffer.isBuffer(body) ? body.toString("hex") : body,
+    };
+  }
+}
+@Module({ controllers: [WebhookController], providers: [SignatureGuard] })
+class WebhookModule {}
+const webhookAdapter = process.argv[2] === "bun"
+  ? new BunHttpAdapter({ bodyLimit: 256 })
+  : new NodeHttpAdapter({ bodyLimit: 256 });
+const webhookApp = await NestFactory.create(WebhookModule, webhookAdapter, {
+  logger: false, rawBody: true,
+});
+try {
+  webhookAdapter.useBodyParser("json", true, { type: "application/vnd.fixture+json" });
+  webhookAdapter.useBodyParser("raw", true);
+  await webhookApp.listen(0, "127.0.0.1");
+  const endpoint = \`\${await webhookApp.getUrl()}/webhook\`;
+  const send = async (bytes: Buffer, signature = sign(bytes), type = "application/json") => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": type, "x-signature": signature },
+      body: new Uint8Array(bytes),
+    });
+    return { status: response.status, body: await response.json() };
+  };
+  const text = String.fromCodePoint(0x41f, 0x440, 0x438, 0x432, 0x456, 0x442, 0x1f680);
+  const payload = Buffer.from(JSON.stringify({ text, value: 7 }, null, 2).replaceAll("\\n", "\\r\\n") + "\\r\\n");
+  const parsed = JSON.parse(payload.toString("utf8"));
+  const expected = { raw: payload.toString("hex"), body: parsed };
+  assert.deepEqual(await send(payload), { status: 201, body: expected });
+  assert.equal((await send(payload, sign(Buffer.from(JSON.stringify(parsed))))).status, 401,
+    "Signing reserialized JSON must not authenticate the original bytes");
+  for (const signature of ["", "invalid", "0".repeat(64)]) {
+    assert.equal((await send(payload, signature)).status, 401);
+  }
+  assert.deepEqual(await send(payload, sign(payload), "application/vnd.fixture+json"),
+    { status: 201, body: expected });
+  const binary = Buffer.from([0, 255, 128, 13, 10, 0, 42]);
+  assert.deepEqual(await send(binary, sign(binary), "application/octet-stream"), {
+    status: 201, body: { raw: binary.toString("hex"), body: binary.toString("hex") },
+  });
+  const chunked = await new Promise<{ status: number | undefined; body: unknown }>((resolve, reject) => {
+    const request = httpRequest(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-signature": sign(payload) },
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("error", reject);
+      response.on("end", () => {
+        try {
+          resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks).toString()) });
+        } catch (error) { reject(error); }
+      });
+    });
+    request.on("error", reject);
+    void (async () => {
+      for (const byte of payload) {
+        request.write(Buffer.from([byte]));
+        await delay(1);
+      }
+      request.end();
+    })().catch((error: Error) => request.destroy(error));
+  });
+  assert.deepEqual(chunked, { status: 201, body: expected },
+    "Chunk boundaries inside multibyte UTF-8 must not alter rawBody");
+  const atLimit = Buffer.from(JSON.stringify({ text: "a".repeat(245) }));
+  assert.equal(atLimit.length, 256);
+  assert.equal((await send(atLimit)).status, 201);
+  const beforeErrors = acceptedWebhooks;
+  assert.equal((await send(Buffer.concat([atLimit, Buffer.from(" ") ]))).status, 413);
+  const multibyteLimit = Buffer.from(JSON.stringify({ text: text.repeat(20) }));
+  assert.ok(multibyteLimit.toString("utf8").length < 256);
+  assert.ok(multibyteLimit.length > 256);
+  assert.equal((await send(multibyteLimit)).status, 413, "Body limits count bytes, not characters");
+  assert.equal((await send(Buffer.from("{"))).status, 400);
+  assert.equal(acceptedWebhooks, beforeErrors, "Parser failures must not invoke the webhook");
+  assert.deepEqual(await send(payload), { status: 201, body: expected },
+    "A valid webhook must still succeed after parser failures");
+  await Promise.all(Array.from({ length: 8 }, async (_, index) => {
+    const bytes = Buffer.from(JSON.stringify({ text, index }, null, index % 3));
+    assert.deepEqual(await send(bytes), {
+      status: 201, body: { raw: bytes.toString("hex"), body: { text, index } },
+    });
+  }));
+} finally {
+  await webhookApp.close();
+}
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
     );
@@ -383,8 +498,16 @@ console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\
       cwd: consumer,
       stdio: "inherit",
     });
-    execFileSync("node", ["dist/consumer.js", "node"], { cwd: consumer, stdio: "inherit" });
-    execFileSync("bun", ["dist/consumer.js", "bun"], { cwd: consumer, stdio: "inherit" });
+    execFileSync("node", ["dist/consumer.js", "node"], {
+      cwd: consumer,
+      stdio: "inherit",
+      timeout: 60000,
+    });
+    execFileSync("bun", ["dist/consumer.js", "bun"], {
+      cwd: consumer,
+      stdio: "inherit",
+      timeout: 60000,
+    });
   }
 } finally {
   await rm(temporary, { recursive: true, force: true });
