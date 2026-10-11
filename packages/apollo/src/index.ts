@@ -1,17 +1,11 @@
 import { Readable } from "node:stream";
-import { createRequire } from "node:module";
-import type * as Apollo from "@apollo/server" with { "resolution-mode": "require" };
+import { ApolloServer, HeaderMap, type BaseContext } from "@apollo/server";
 import { ApolloDriver, type ApolloDriverConfig } from "@nestjs/apollo";
 import { Inject, Injectable, StreamableFile } from "@nestjs/common";
 import { ModulesContainer } from "@nestjs/core";
 import type { NativeRequest, NativeResponse } from "nestjs-adapter-node";
 
-// Nest's Apollo 12 driver is CommonJS; use the same Apollo class and declaration branch.
-const { ApolloServer, HeaderMap } = createRequire(import.meta.url)(
-  "@apollo/server",
-) as typeof Apollo;
-
-/** Apollo 4 HTTP integration for native adapters on Nest 10. Subscriptions are not supported. */
+/** Native HTTP integration for Nest 10 / Apollo 4 and Nest 12 / Apollo 5. */
 @Injectable()
 export class NativeApolloDriver extends ApolloDriver {
   constructor(@Inject(ModulesContainer) modules: ModulesContainer) {
@@ -41,7 +35,7 @@ export class NativeApolloDriver extends ApolloDriver {
       throw new Error("NativeApolloDriver requires NodeHttpAdapter or BunHttpAdapter.");
     }
     if (!options.schema) throw new Error("NativeApolloDriver requires a generated GraphQL schema.");
-    const server = new ApolloServer<Apollo.BaseContext>({
+    const server = new ApolloServer<BaseContext>({
       ...options,
       schema: options.schema,
       typeDefs: undefined,

@@ -50,11 +50,12 @@ Fastify a benchmark-only one.
 
 The standard Nest `ApolloDriver` only recognizes Express/Fastify and rejects
 the native HTTP adapters. The private, experimental workspace package
-`packages/apollo` provides `NativeApolloDriver` for **Nest 10 / Apollo 4**;
+`packages/apollo` provides `NativeApolloDriver` for **Nest 10 / Apollo 4**
+and **Nest 12 / Apollo 5**;
 see [its usage and limitations](packages/apollo/README.md). It is not
 published to npm and is not included in either HTTP adapter's runtime dependencies.
 HTTP queries and mutations are covered by `pnpm run test:graphql`.
-Subscriptions and Nest 12 / Apollo 5 integration are not currently supported.
+Subscriptions are not currently supported.
 
 ### HTTP adapters
 

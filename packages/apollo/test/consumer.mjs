@@ -4,7 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { Inject, Module, UnauthorizedException } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { ApolloDriver, Plugin } from "@nestjs/apollo";
-import { GraphQLModule } from "@nestjs/graphql";
+import { Args, GraphQLModule, Int, Query, Resolver } from "@nestjs/graphql";
 import { GraphQLError } from "graphql";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import { NativeApolloDriver } from "nestjs-adapter-apollo";
@@ -12,6 +12,7 @@ import { NodeHttpAdapter } from "nestjs-adapter-node";
 import { BunHttpAdapter } from "nestjs-adapter-bun";
 
 const mode = process.argv[2];
+const modern = process.argv[3] === "nest12-apollo5";
 const reports = {};
 for (const contextKind of mode === "express"
   ? ["function", "default"]
@@ -185,7 +186,7 @@ for (const contextKind of mode === "express"
     assert.ok(pluginState.maxActive > 1, "The fixture must exercise overlapping requests");
     for (const query of ["{ unknown }", "{", "query($name: String!) { hello(name: $name) }"]) {
       const error = await json({ query });
-      assert.equal(error.status, query.includes("$name") ? 200 : 400);
+      assert.equal(error.status, query.includes("$name") && !modern ? 200 : 400);
       result.push(error);
     }
     const get = await fetch(
@@ -233,9 +234,87 @@ if (mode !== "express") {
   driver.httpAdapterHost = { httpAdapter: { getType: () => "express" } };
   await assert.rejects(driver.registerServer({}), /requires NodeHttpAdapter or BunHttpAdapter/);
 }
+class CodeFirstResolver {
+  double(value) {
+    return value * 2;
+  }
+  rejected() {
+    throw new GraphQLError("Execution rejected", {
+      extensions: { code: "EXECUTION_REJECTED", http: { status: 409 } },
+    });
+  }
+}
+Resolver()(CodeFirstResolver);
+for (const name of ["double", "rejected"]) {
+  Query(() => Int)(
+    CodeFirstResolver.prototype,
+    name,
+    Object.getOwnPropertyDescriptor(CodeFirstResolver.prototype, name),
+  );
+}
+Reflect.defineMetadata("design:paramtypes", [Number], CodeFirstResolver.prototype, "double");
+Args("value", { type: () => Int })(CodeFirstResolver.prototype, "double", 0);
+for (const preserveHttpStatusForExecutionErrors of modern ? [true, false] : [true]) {
+  class CodeFirstModule {}
+  Module({
+    imports: [
+      GraphQLModule.forRoot({
+        driver: mode === "express" ? ApolloDriver : NativeApolloDriver,
+        autoSchemaFile: true,
+        ...(modern
+          ? { graphiql: true, preserveHttpStatusForExecutionErrors }
+          : { playground: false }),
+        formatError: ({ extensions, ...error }) => {
+          const { stacktrace: _stacktrace, ...rest } = extensions;
+          return { ...error, extensions: rest };
+        },
+      }),
+    ],
+    providers: [CodeFirstResolver],
+  })(CodeFirstModule);
+  const adapter =
+    mode === "express"
+      ? new ExpressAdapter()
+      : mode === "node"
+        ? new NodeHttpAdapter()
+        : new BunHttpAdapter();
+  const app = await NestFactory.create(CodeFirstModule, adapter, {
+    logger: false,
+    abortOnError: false,
+  });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const endpoint = `${await app.getUrl()}/graphql`;
+    const query = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        query: "query($value: Int!) { double(value: $value) }",
+        variables: { value: 7 },
+      }),
+    });
+    assert.equal(query.status, 200);
+    assert.deepEqual(await query.json(), { data: { double: 14 } });
+    const rejected = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "{ rejected }" }),
+    });
+    assert.equal(rejected.status, modern && preserveHttpStatusForExecutionErrors ? 200 : 409);
+    assert.equal((await rejected.json()).errors[0].extensions.code, "EXECUTION_REJECTED");
+    if (modern) {
+      const landing = await fetch(endpoint, { headers: { accept: "text/html" } });
+      assert.equal(landing.status, 200);
+      assert.match(landing.headers.get("content-type"), /text\/html/);
+      assert.match(await landing.text(), /GraphiQL/);
+    }
+  } finally {
+    await app.close();
+  }
+}
 await import("node:fs/promises").then(({ writeFile }) =>
   writeFile(`${mode}.json`, JSON.stringify(reports)),
 );
 console.log(
-  `${mode}: Apollo operations, concurrent contexts, injected plugins and HTTP lifecycle passed`,
+  `${process.argv[3]} ${mode}: Apollo operations, concurrent contexts, injected plugins and HTTP lifecycle passed`,
 );

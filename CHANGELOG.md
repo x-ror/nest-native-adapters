@@ -9,12 +9,15 @@ version and one changelog. The format follows
 ### Added
 
 - Private experimental `nestjs-adapter-apollo` workspace package: native
-  Apollo 4 HTTP driver for Nest 10 on Node and Bun, with request-isolated
+  Apollo 4 / Nest 10 and Apollo 5 / Nest 12 HTTP driver on Node and Bun, with request-isolated
   contexts and no Express/Fastify identity spoofing.
 - Packed GraphQL consumer checks and CI coverage for queries, mutations,
   authorization errors, GET, CSRF, CORS, global prefixes and Apollo shutdown.
 - GraphQL coverage for Nest-discovered injectable plugins, plugin rejection
   responses, concurrent request context isolation and plugin lifecycle cleanup.
+- Packed GraphQL checks cover both supported dependency stacks, including
+  strict TypeScript 6 / NodeNext declarations for Nest 12 / Apollo 5 and
+  version-specific variable coercion HTTP statuses.
 
 - Shared Node/Bun integration coverage for transformed and validated DTOs,
   guards, injected exception filters, asynchronous service errors, response
