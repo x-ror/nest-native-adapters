@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { get as httpsGet } from "node:https";
 import { join } from "node:path";
@@ -354,6 +354,69 @@ describe("native Nest adapters", () => {
       });
       expect(rejected.status).toBe(413);
       await rejected.arrayBuffer();
+      expect(await readdir(directory)).toEqual([]);
+
+      const boundary = "invalid-field-boundary";
+      const invalidField = await fetch(`${await app.getUrl()}/stream-upload`, {
+        method: "POST",
+        headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+        body: [
+          `--${boundary}`,
+          'Content-Disposition: form-data; name="upload"; filename="partial.txt"',
+          "Content-Type: text/plain",
+          "",
+          "partial contents",
+          `--${boundary}`,
+          'Content-Disposition: form-data; name="__proto__[polluted]"',
+          "",
+          "invalid",
+          `--${boundary}--`,
+          "",
+        ].join("\r\n"),
+      });
+      expect(invalidField.status).toBe(400);
+      await invalidField.arrayBuffer();
+      expect(await readdir(directory)).toEqual([]);
+
+      const boundaryForAbort = "aborted-upload-boundary";
+      const request = httpRequest(await app.getUrl(), {
+        method: "POST",
+        headers: { "content-type": `multipart/form-data; boundary=${boundaryForAbort}` },
+      });
+      request.on("error", () => {});
+      request.write(
+        [
+          `--${boundaryForAbort}`,
+          'Content-Disposition: form-data; name="upload"; filename="interrupted.txt"',
+          "Content-Type: text/plain",
+          "",
+          "partial contents",
+        ].join("\r\n") + "\r\n",
+      );
+      try {
+        let uploadStarted = false;
+        for (let attempt = 0; attempt < 100 && !uploadStarted; attempt++) {
+          for (const child of await readdir(directory)) {
+            if ((await readdir(join(directory, child))).length) {
+              uploadStarted = true;
+              break;
+            }
+          }
+          if (!uploadStarted) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(uploadStarted).toBe(true);
+      } finally {
+        await new Promise<void>((resolve) => {
+          request.once("close", resolve);
+          request.destroy();
+        });
+      }
+      let uploadCleaned = false;
+      for (let attempt = 0; attempt < 100 && !uploadCleaned; attempt++) {
+        uploadCleaned = (await readdir(directory)).length === 0;
+        if (!uploadCleaned) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(uploadCleaned).toBe(true);
     } finally {
       await app.close();
       await rm(directory, { recursive: true, force: true });

@@ -123,11 +123,11 @@ export async function parseDiskMultipart(
     await Promise.all(fileWrites);
     return { body, files, cleanup };
   } catch (error) {
-    try {
-      await Promise.all(fileWrites);
-    } catch (fileError) {
-      writeError ??= fileError;
-    }
+    const writeResults = await Promise.allSettled(fileWrites);
+    const failedWrite = writeResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failedWrite) writeError ??= failedWrite.reason;
     await cleanup();
     if (error instanceof PayloadTooLargeException) throw error;
     if (writeError !== undefined) throw writeError;
