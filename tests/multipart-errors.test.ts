@@ -56,3 +56,35 @@ it("treats parser errors propagated through a file write as client errors", asyn
     await rm(directory, { recursive: true });
   }
 });
+
+it("does not open a disk file when the filter skips it", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-skipped-file-"));
+  try {
+    const form = new FormData();
+    form.append("file", new Blob(["skip"]), "skip.txt");
+    const encoded = new Response(form);
+    const request = createRequest(
+      new Request("http://localhost/upload", {
+        method: "POST",
+        headers: { "content-type": encoded.headers.get("content-type")! },
+        body: await encoded.arrayBuffer(),
+      }),
+    );
+    diskFailure.enabled = true;
+    const parsed = await parseDiskMultipart(
+      request,
+      4096,
+      directory,
+      1024,
+      1,
+      (_request, _file, callback) => callback(null, false),
+    );
+    expect(parsed.files).toEqual([]);
+    const [destination] = await readdir(directory);
+    expect(await readdir(join(directory, destination!))).toEqual([]);
+    await parsed.cleanup();
+    expect(await readdir(directory)).toEqual([]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

@@ -138,7 +138,7 @@ import {
 } from "nestjs-adapter-node";
 import type {
   DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse,
-  UploadedFile as NativeUpload, UploadInterceptorOptions,
+  UploadedFile as NativeUpload, UploadInterceptorOptions, UploadFileFilter,
 } from "nestjs-adapter-node";
 import {
   BunHttpAdapter, BunWsAdapter, FileInterceptor as BunFileInterceptor,
@@ -1260,6 +1260,22 @@ const LocalFile = process.argv[2] === "bun" ? BunFileInterceptor : NodeFileInter
 const LocalFiles = process.argv[2] === "bun" ? BunFilesInterceptor : NodeFilesInterceptor;
 const LocalFields = process.argv[2] === "bun" ? BunFileFieldsInterceptor : NodeFileFieldsInterceptor;
 const LocalAny = process.argv[2] === "bun" ? BunAnyFilesInterceptor : NodeAnyFilesInterceptor;
+const filterUpload: UploadFileFilter = (request, file, callback) => {
+  assert.equal((request.body as Record<string, unknown>).note, "fixture");
+  assert.equal(file.fieldname, "file");
+  assert.equal(file.mimetype, "application/octet-stream");
+  assert.equal("path" in file, false);
+  assert.equal("buffer" in file, false);
+  if (file.originalname === "error.txt") {
+    setTimeout(() => callback(new ConflictException("filter rejected")), 5);
+  } else if (file.originalname === "throw.txt") {
+    throw new ConflictException("filter threw");
+  } else {
+    setTimeout(() => callback(null, file.originalname !== "skip.txt"),
+      file.originalname === "first.txt" ? 15 : 0);
+  }
+};
+const filterOptions: UploadInterceptorOptions = { fileFilter: filterUpload };
 class DeferredUploadGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<NativeRequest>();
@@ -1296,12 +1312,32 @@ class LocalUploadController {
   @Post("failure")
   @UseInterceptors(LocalFile("file", localLimits))
   failure() { throw new ConflictException("upload failed"); }
+  @Post("filter-one")
+  @UseInterceptors(LocalFile("file", filterOptions))
+  filterOne(@UploadedFile() file: NativeUpload | undefined) {
+    return { name: file?.originalname ?? null };
+  }
+  @Post("filter-many")
+  @UseInterceptors(LocalFiles("file", 2, filterOptions))
+  filterMany(@UploadedFiles() files: NativeUpload[]) {
+    return files.map((file) => file.originalname);
+  }
+  @Post("filter-fields")
+  @UseInterceptors(LocalFields([{ name: "file" }], filterOptions))
+  filterFields(@UploadedFiles() files: Record<string, NativeUpload[]>) {
+    return (files.file ?? []).map((file) => file.originalname);
+  }
+  @Post("filter-any")
+  @UseInterceptors(LocalAny(filterOptions))
+  filterAny(@UploadedFiles() files: NativeUpload[]) {
+    return files.map((file) => file.originalname);
+  }
 }
 @Module({ controllers: [LocalUploadController] })
 class LocalUploadModule {}
 for (const disk of [false, true]) {
   const options: NativeAdapterOptions = {
-    uploadParsing: "interceptor", uploadLimit: 4096, uploadFileLimit: 8, uploadFilesLimit: 2,
+    uploadParsing: "interceptor", uploadLimit: 4096, uploadFileLimit: 8, uploadFilesLimit: 3,
     ...(disk ? { uploadStorage: { directory: uploadDirectory } } : {}),
   };
   const app = await NestFactory.create(LocalUploadModule,
@@ -1330,7 +1366,7 @@ for (const disk of [false, true]) {
     }
     assert.deepEqual(await post("large", 8), { status: 201, body: { size: 8 } });
     assert.equal((await post("large", 9)).status, 413);
-    assert.equal((await post("large", 1, 3)).status, 413);
+    assert.equal((await post("large", 1, 4)).status, 413);
     assert.equal((await post("small", 100, 1, false)).status, 403);
     assert.deepEqual(await post("plain", 8), { status: 201, body: { size: 8 } });
     assert.equal((await post("plain", 9)).status, 413);
@@ -1345,6 +1381,36 @@ for (const disk of [false, true]) {
     });
     assert.equal(malformed.status, 400);
     await malformed.arrayBuffer();
+    const filtered = async (path: string, names: string[]) => {
+      const form = new FormData();
+      form.append("note", "fixture");
+      for (const name of names) form.append("file", new Blob(["ok"]), name);
+      const response = await fetch(\`\${base}/local-upload/\${path}\`, {
+        method: "POST", headers: { "x-allow": "yes" }, body: form,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    assert.deepEqual(await filtered("filter-one", ["skip.txt"]), {
+      status: 201, body: { name: null },
+    });
+    assert.deepEqual(await filtered("filter-one", ["keep.txt"]), {
+      status: 201, body: { name: "keep.txt" },
+    });
+    for (const path of ["filter-many", "filter-fields", "filter-any"]) {
+      assert.deepEqual(await filtered(path, ["first.txt", "skip.txt", "last.txt"]), {
+        status: 201, body: ["first.txt", "last.txt"],
+      });
+      for (const name of ["error.txt", "throw.txt"]) {
+        const rejected = await filtered(path, ["first.txt", name]);
+        assert.equal(rejected.status, 409);
+        assert.equal(rejected.body.message, name === "error.txt" ? "filter rejected" : "filter threw");
+      }
+    }
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      assert.deepEqual(await filtered("filter-one", [id % 2 ? "keep.txt" : "skip.txt"]), {
+        status: 201, body: { name: id % 2 ? "keep.txt" : null },
+      });
+    }));
     await Promise.all(Array.from({ length: 8 }, async (_, id) => {
       const oversized = id % 2 === 0;
       assert.equal((await post("small", oversized ? 5 : 4)).status, oversized ? 413 : 201);

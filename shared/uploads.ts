@@ -11,11 +11,24 @@ import { mediaType, type DiskUploadFile, type NativeRequest } from "./request.js
 export interface UploadInterceptorOptions {
   /** Streaming limits, bounded by the adapter's global upload limits. */
   limits?: { fileSize?: number; files?: number };
+  fileFilter?: UploadFileFilter;
 }
+
+export interface UploadFileMetadata {
+  fieldname: string;
+  originalname: string;
+  encoding: string;
+  mimetype: string;
+}
+export type UploadFileFilter = (
+  request: NativeRequest,
+  file: UploadFileMetadata,
+  callback: (error: Error | null, accept?: boolean) => void,
+) => void;
 
 // Both adapter packages bundle this module; interceptors can cross package boundaries.
 const PARSE_UPLOAD = Symbol.for("nestjs-native-adapters.parseUpload");
-type UploadParser = (limits: UploadInterceptorOptions["limits"]) => Promise<void>;
+type UploadParser = (options: UploadInterceptorOptions) => Promise<void>;
 
 export function deferUploadParsing(request: NativeRequest, parse: UploadParser): void {
   (request as UploadRequest)[PARSE_UPLOAD] = parse;
@@ -85,6 +98,9 @@ function uploadInterceptor(
   options: UploadInterceptorOptions,
 ): Type<NestInterceptor> {
   const limits = options.limits ? { ...options.limits } : undefined;
+  const fileFilter = options.fileFilter;
+  if (fileFilter !== undefined && typeof fileFilter !== "function")
+    throw new TypeError("fileFilter must be a function.");
   for (const [name, value] of Object.entries(limits ?? {})) {
     if (name !== "fileSize" && name !== "files")
       throw new TypeError(`Unsupported upload limit: ${name}`);
@@ -96,13 +112,15 @@ function uploadInterceptor(
       async intercept(context: ExecutionContext, next: CallHandler) {
         const request = context.switchToHttp().getRequest<UploadRequest>();
         if (request[PARSE_UPLOAD]) {
-          await request[PARSE_UPLOAD](limits);
+          await request[PARSE_UPLOAD]({ limits, fileFilter });
           delete request[PARSE_UPLOAD];
         } else if (
-          limits &&
+          (limits || fileFilter) &&
           mediaType(request.headers?.["content-type"]) === "multipart/form-data"
         ) {
-          throw new Error('Per-interceptor upload limits require uploadParsing: "interceptor".');
+          throw new Error(
+            'Per-interceptor upload limits and fileFilter require uploadParsing: "interceptor".',
+          );
         }
         const body = request.body;
         if (body !== null && typeof body === "object")

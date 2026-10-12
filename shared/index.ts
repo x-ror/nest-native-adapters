@@ -44,6 +44,8 @@ export {
   type UploadedFile,
   type UploadedFileData,
   type UploadInterceptorOptions,
+  type UploadFileFilter,
+  type UploadFileMetadata,
 } from "./uploads.js";
 export {
   ClientRequest,
@@ -438,7 +440,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       const kind = kindOf(mediaType(req.headers["content-type"]));
       if (kind === undefined) return next();
       if (kind === "multipart" && this.adapterOptions.uploadParsing === "interceptor") {
-        deferUploadParsing(req, async (limits) => {
+        deferUploadParsing(req, async ({ limits, fileFilter }) => {
           if (req.body !== undefined)
             throw new Error("Multipart body was already parsed before the upload interceptor.");
           const fileLimit = Math.min(uploadFileLimit, limits?.fileSize ?? uploadFileLimit);
@@ -453,8 +455,9 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
                 this.adapterOptions.uploadStorage.directory,
                 fileLimit,
                 filesLimit,
+                fileFilter,
               )
-            : await parseMemoryMultipart(req, uploadLimit, fileLimit, filesLimit);
+            : await parseMemoryMultipart(req, uploadLimit, fileLimit, filesLimit, fileFilter);
           req.body = parsed.body;
           req.uploads = parsed.files;
           res.once("close", () => {

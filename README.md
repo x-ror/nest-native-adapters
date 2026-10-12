@@ -90,8 +90,8 @@ need no changes. Check the code that does:
   Express/Fastify APIs and plugin-specific methods are not available.
 - Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
   `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
-  adapter package instead of `@nestjs/platform-express`. Multer's `fileFilter`
-  is not supported. Per-interceptor limits require opt-in interceptor parsing.
+  adapter package instead of `@nestjs/platform-express`. Callback-style
+  `fileFilter` and per-interceptor limits require opt-in interceptor parsing.
   See Uploads.
 - Keep `app.enableCors(...)` as is. The options and resulting headers match
   the `cors` package.
@@ -340,7 +340,6 @@ Move or copy a file in the controller if it must persist.
   on disk until its response completes.
 - With Nest's `rawBody` option, uploads stay in memory so that `rawBody` can
   hold the complete request.
-- Multer's `fileFilter` is not supported.
 
 #### Per-interceptor streaming limits
 
@@ -382,6 +381,40 @@ combined with Nest's `rawBody: true` option and fails at startup if it is.
 Using local limits in the default middleware-parsing mode throws an explicit
 configuration error on multipart requests; it does not claim to enforce them
 retroactively. The default mode and existing interceptor calls are unchanged.
+
+#### Filtering uploads
+
+All four upload interceptors accept a callback-style `fileFilter` in the same
+options object. Like local streaming limits, this requires
+`uploadParsing: "interceptor"`.
+
+```ts
+FileInterceptor("avatar", {
+  fileFilter(request, file, callback) {
+    callback(null, file.mimetype === "image/png");
+  },
+});
+```
+
+The filter runs before writing the file to disk or buffering its contents in
+memory. `callback(null, true)` accepts it; `callback(null, false)` drains and
+skips it. A skipped file is absent from `@UploadedFile()` / `@UploadedFiles()`.
+Callback errors and thrown errors abort parsing, preserve Nest HTTP exceptions,
+and clean up already accepted temporary files. A plain `Error` produces HTTP
+500 through Nest's usual exception handling.
+
+Filters may call back asynchronously, must call back with a boolean decision
+on success, and should do so exactly once. The parser preserves file order
+even when decisions finish out of order. Metadata (`UploadFileMetadata`)
+includes `fieldname`, `originalname`, `encoding` and `mimetype`, not a buffer
+or disk path. `request.body` contains fields received so far, so fields sent
+after the file may not yet be available. `UploadFileFilter` is exported by
+both packages.
+
+Skipped files still count toward `limits.files` and the total payload limit;
+their contents are not subject to the accepted-file size limit. MIME types
+and names are supplied by the client: filtering them does not validate file
+contents or guarantee their safety.
 
 ## CORS
 

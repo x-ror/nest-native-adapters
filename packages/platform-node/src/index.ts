@@ -37,6 +37,8 @@ export type {
   TrustProxy,
   UploadedFileData,
   UploadInterceptorOptions,
+  UploadFileFilter,
+  UploadFileMetadata,
   ViewRenderer,
 } from "@shared";
 

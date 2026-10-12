@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { Transform, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import Busboy from "busboy";
+import type { UploadFileFilter } from "./uploads.js";
 import { BadRequestException, PayloadTooLargeException } from "@nestjs/common";
 import {
   assignFormValue,
@@ -26,8 +27,16 @@ export async function parseDiskMultipart(
   rootDirectory?: string,
   fileSizeLimit = limit,
   filesLimit?: number,
+  fileFilter?: UploadFileFilter,
 ): Promise<ParsedDiskMultipart> {
-  return parseMultipart(request, limit, { directory: rootDirectory }, fileSizeLimit, filesLimit);
+  return parseMultipart(
+    request,
+    limit,
+    { directory: rootDirectory },
+    fileSizeLimit,
+    filesLimit,
+    fileFilter,
+  );
 }
 
 export async function parseMemoryMultipart(
@@ -35,8 +44,9 @@ export async function parseMemoryMultipart(
   limit: number,
   fileSizeLimit = limit,
   filesLimit?: number,
+  fileFilter?: UploadFileFilter,
 ): Promise<ParsedDiskMultipart> {
-  return parseMultipart(request, limit, undefined, fileSizeLimit, filesLimit);
+  return parseMultipart(request, limit, undefined, fileSizeLimit, filesLimit, fileFilter);
 }
 
 async function parseMultipart(
@@ -45,6 +55,7 @@ async function parseMultipart(
   storage: { directory?: string } | undefined,
   fileSizeLimit: number,
   filesLimit?: number,
+  fileFilter?: UploadFileFilter,
 ): Promise<ParsedDiskMultipart> {
   const bodyStream = request.raw.body;
   const headers = new Headers(request.raw.headers);
@@ -66,8 +77,10 @@ async function parseMultipart(
     if (destination) await rm(destination, { recursive: true });
   };
   const body = Object.create(null) as Record<string, unknown>;
+  if (fileFilter) request.body = body;
   const files: DiskUploadFile[] = [];
   let writeError: unknown;
+  let filterError: Error | undefined;
   let limitError: PayloadTooLargeException | undefined;
   let parser: ReturnType<typeof Busboy>;
   try {
@@ -85,6 +98,7 @@ async function parseMultipart(
   }
 
   const fileWrites: Promise<void>[] = [];
+  const collectedFiles: (() => void)[] = [];
   parser.on("field", (name, value, info) => {
     if (info.nameTruncated || info.valueTruncated) {
       parser.destroy(new PayloadTooLargeException());
@@ -101,54 +115,107 @@ async function parseMultipart(
     queueMicrotask(() => parser.destroy(limitError));
   });
   parser.on("file", (fieldname, stream, info) => {
-    const filename = randomUUID();
-    const file: DiskUploadFile | undefined = destination
-      ? {
-          fieldname,
-          originalname: info.filename ?? "",
-          encoding: info.encoding,
-          mimetype: info.mimeType.split(";")[0]!,
-          size: 0,
-          destination,
-          filename,
-          path: join(destination, filename),
-        }
-      : undefined;
-    if (file) files.push(file);
-    let size = 0;
-    const chunks: Buffer[] = [];
-    const counter = new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        size += chunk.length;
-        if (size > fileSizeLimit) {
-          limitError ??= new PayloadTooLargeException();
-          callback(limitError);
-          return;
-        }
-        callback(null, chunk);
-      },
-    });
-    const destinationStream = file
-      ? createWriteStream(file.path, { flags: "wx", mode: 0o600 })
-      : new Writable({
-          write(chunk: Buffer, _encoding, callback) {
-            chunks.push(chunk);
-            callback();
-          },
-        });
-    // Observe disk errors before pipeline propagates them back to the source.
-    // Parser errors already present on the source must stay client errors.
-    destinationStream.on("error", (error) => {
-      if (!stream.errored && !counter.errored) writeError ??= error;
-    });
-    const write = pipeline(stream, counter, destinationStream).then(() => {
-      if (file) file.size = size;
-      else
-        assignFormValue(
-          body,
-          formFieldPath(fieldname),
-          new File([Buffer.concat(chunks, size)], info.filename ?? "", { type: info.mimeType }),
+    // A filter can fail before a storage pipeline has attached its error listeners.
+    stream.on("error", (error) => parser.destroy(error));
+    const index = collectedFiles.length;
+    collectedFiles.push(() => {});
+    const metadata = {
+      fieldname,
+      originalname: info.filename ?? "",
+      encoding: info.encoding,
+      mimetype: info.mimeType.split(";")[0]!,
+    };
+    const decision = fileFilter
+      ? new Promise<boolean>((resolve, reject) => {
+          let called = false;
+          const onError = (error: Error) => reject(error);
+          stream.once("error", onError);
+          const callback = (error: Error | null, accept?: boolean) => {
+            if (called) return;
+            called = true;
+            stream.off("error", onError);
+            if (error) {
+              filterError = error;
+              reject(error);
+            } else if (typeof accept !== "boolean") {
+              filterError = new TypeError(
+                "fileFilter callback must provide a boolean acceptance value.",
+              );
+              reject(filterError);
+            } else resolve(accept);
+          };
+          try {
+            fileFilter(request, metadata, callback);
+          } catch (error) {
+            callback(
+              error instanceof Error ? error : new Error("fileFilter failed", { cause: error }),
+            );
+          }
+        })
+      : Promise.resolve(true);
+    const write = decision.then(async (accept) => {
+      if (!accept) {
+        await pipeline(
+          stream,
+          new Writable({
+            write(_chunk, _encoding, callback) {
+              callback();
+            },
+          }),
         );
+        return;
+      }
+      const filename = randomUUID();
+      const file: DiskUploadFile | undefined = destination
+        ? {
+            fieldname,
+            originalname: info.filename ?? "",
+            encoding: info.encoding,
+            mimetype: info.mimeType.split(";")[0]!,
+            size: 0,
+            destination,
+            filename,
+            path: join(destination, filename),
+          }
+        : undefined;
+      let size = 0;
+      const chunks: Buffer[] = [];
+      const counter = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          size += chunk.length;
+          if (size > fileSizeLimit) {
+            limitError ??= new PayloadTooLargeException();
+            callback(limitError);
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+      const destinationStream = file
+        ? createWriteStream(file.path, { flags: "wx", mode: 0o600 })
+        : new Writable({
+            write(chunk: Buffer, _encoding, callback) {
+              chunks.push(chunk);
+              callback();
+            },
+          });
+      // Observe disk errors before pipeline propagates them back to the source.
+      // Parser errors already present on the source must stay client errors.
+      destinationStream.on("error", (error) => {
+        if (!stream.errored && !counter.errored) writeError ??= error;
+      });
+      await pipeline(stream, counter, destinationStream);
+      if (file) {
+        file.size = size;
+        collectedFiles[index] = () => {
+          files.push(file);
+        };
+      } else {
+        const value = new File([Buffer.concat(chunks, size)], info.filename ?? "", {
+          type: info.mimeType,
+        });
+        collectedFiles[index] = () => assignFormValue(body, formFieldPath(fieldname), value);
+      }
     });
     fileWrites.push(write);
     void write.catch((error: unknown) => {
@@ -174,10 +241,12 @@ async function parseMultipart(
     );
     await Promise.all(fileWrites);
     if (limitError) throw limitError;
+    for (const collect of collectedFiles) collect();
     return { body, files, cleanup };
   } catch (error) {
     await Promise.allSettled(fileWrites);
     await cleanup();
+    if (filterError) throw filterError;
     if (limitError) throw limitError;
     if (error instanceof PayloadTooLargeException) throw error;
     if (writeError !== undefined) throw writeError;

@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Callback-style `fileFilter` for all upload interceptors in interceptor
+  parsing mode: accepts/skips before storage, supports delayed decisions,
+  preserves file order and propagates errors with temporary-file cleanup.
 - Opt-in `uploadParsing: "interceptor"` with streaming per-interceptor
   `limits.fileSize` and `limits.files` for all four upload interceptors on
   Node/Bun, in memory and on disk. Guards run before multipart parsing, and

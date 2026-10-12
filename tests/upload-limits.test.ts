@@ -83,7 +83,7 @@ it("reports misconfiguration instead of checking streaming limits retroactively"
     },
   ]);
   await expect(new Interceptor().intercept(context, { handle: () => of(null) })).rejects.toThrow(
-    'Per-interceptor upload limits require uploadParsing: "interceptor"',
+    'require uploadParsing: "interceptor"',
   );
 });
 
