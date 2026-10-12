@@ -1,9 +1,9 @@
 # Native Apollo driver
 
-Experimental, private workspace package: **not published to npm**.
-`NativeApolloDriver` integrates Apollo Server with `NodeHttpAdapter` and
-`BunHttpAdapter`, using Apollo's HTTP execution API instead of Express or
-Fastify middleware. The HTTP adapters retain their native identities.
+An experimental workspace package. It is not published to npm.
+`NativeApolloDriver` connects Apollo Server to `NodeHttpAdapter` and
+`BunHttpAdapter` through Apollo's HTTP execution API, without Express or
+Fastify middleware.
 
 Supported dependency combinations (do not mix rows):
 
@@ -12,9 +12,8 @@ Supported dependency combinations (do not mix rows):
 | 10   | 12                                   | 4.10+         | 16.8+   |
 | 12   | 14.0.3+                              | 5.5.1+        | 16.11+  |
 
-The workspace builds against Nest 12 / Apollo 5. Isolated packed consumers
-cover both combinations on Node and Bun; Nest 11 and GraphQL 17 are not
-currently supported.
+Both combinations work on Node and Bun. Nest 11 and GraphQL 17 are not
+supported.
 
 ```ts
 import { GraphQLModule } from "@nestjs/graphql";
@@ -29,52 +28,43 @@ GraphQLModule.forRoot<ApolloDriverConfig>({
 });
 ```
 
-Start Nest with either native HTTP adapter. Build and pack this workspace
-package locally; the snippet does not imply that it is available on npm.
-The Node adapter is a type peer of this package, including when running Bun.
+Start Nest with either adapter. To use the driver, build and pack this
+workspace package locally. `nestjs-adapter-node` is a peer dependency for its
+types, also when you run on Bun.
 
-Queries and mutations over HTTP, GET query parameters, Apollo's CSRF checks,
-custom contexts, error formatting and Nest's discovered Apollo plugins are
-supported. Enable CORS on the Nest application. Contexts expose `req`, `res`
-and `reply`; both response names refer to the native response. Object contexts
-are shallow-cloned per request, avoiding reuse of Nest 10's injected `req`.
-Nested application state is not deep-cloned.
+The driver supports queries and mutations over HTTP, GET query parameters,
+Apollo's CSRF checks, custom contexts, error formatting and the Apollo plugins
+that Nest discovers. Enable CORS on the Nest application.
 
-Apollo stops through Nest's GraphQL module lifecycle; the HTTP adapter owns
-server draining. Do not add an Express/Fastify drain plugin. The endpoint is
-an exact route, not an Express middleware mount accepting child paths.
+Contexts expose `req`, `res` and `reply`. `res` and `reply` are the same
+native response. The driver shallow-clones an object context for each request,
+so requests do not share Nest 10's injected `req`. It does not deep-clone
+nested state.
 
-Subscriptions are rejected at startup. WebSocket protocols, Apollo federation,
-GraphQL multipart uploads and incremental delivery have not been validated.
-Apollo 4 is end-of-life; its support exists for existing applications, not
-as a recommendation for new production projects.
+Nest's GraphQL module stops Apollo, and the HTTP adapter drains the server.
+Do not add an Express or Fastify drain plugin. The endpoint matches its exact
+path only, not child paths.
 
-HTTP status semantics follow the installed Nest/Apollo combination, not a
-cross-version normalization. For example, missing required variables return
-HTTP 200 with Apollo 4's defaults but HTTP 400 with Apollo 5. Other inherited
-options, including Nest Apollo 14's execution-error status handling, remain
-controlled by the upstream driver.
-On the modern stack, use `graphiql: true` to enable Nest's GraphiQL landing
+The driver rejects subscriptions at startup. WebSocket protocols, Apollo
+federation, GraphQL multipart uploads and incremental delivery are untested.
+Apollo 4 is end-of-life. The driver supports it for existing applications, so
+do not pick it for a new project.
+
+HTTP status codes follow the installed Nest/Apollo combination and differ
+between them. For example, a missing required variable returns HTTP 200 with
+Apollo 4's defaults but HTTP 400 with Apollo 5. The upstream driver still
+controls other inherited options, including Nest Apollo 14's execution-error
+status handling.
+
+On the Nest 12 stack, set `graphiql: true` to enable Nest's GraphiQL landing
 page (`playground` is a deprecated alias). Code-first `autoSchemaFile`
-generation is supported on both stacks.
+generation works on both stacks.
 
-`pnpm run test:graphql` builds and installs real tarballs into an isolated
-consumer for each supported stack, checks declarations with `skipLibCheck: false`, and compares
-Node/Bun responses with Express for queries, mutations, authorization errors,
-GET, CSRF, CORS, contexts, a global prefix and application shutdown. It also
-checks Nest-discovered plugins with injected dependencies, plugin rejection
-status/errors, overlapping requests with distinct authentication/context
-values, and completion of plugin request and server lifecycles.
-Code-first schema generation is covered on both stacks; the modern stack
-also covers the GraphiQL HTML response and both settings of
-`preserveHttpStatusForExecutionErrors`.
-Strict declaration checking of the upstream Nest GraphQL/Apollo packages also
-needs their optional type dependencies: `ts-morph`, `@apollo/gateway` and
-`@types/ws`. The isolated consumer installs them for type checking only;
-gateway functionality is not covered.
-The legacy stack checks declarations with the existing application's
-TypeScript 5.2 / CommonJS resolution settings: the older upstream Apollo
-release has incompatible declarations under NodeNext. The modern stack uses
-TypeScript 6 / NodeNext. The native packages themselves are ESM; applications
-must load them through an ESM-compatible bootstrap rather than emitting
-`require("nestjs-adapter-apollo")`.
+Strict declaration checking (`skipLibCheck: false`) of the upstream Nest
+GraphQL/Apollo packages needs their optional type dependencies `ts-morph`,
+`@apollo/gateway` and `@types/ws`. On the Nest 10 stack, the upstream Apollo
+declarations are incompatible with NodeNext resolution, so type-check with
+CommonJS resolution settings there.
+
+The package is ESM. Applications must load it through an ESM-compatible
+bootstrap rather than emitting `require("nestjs-adapter-apollo")`.

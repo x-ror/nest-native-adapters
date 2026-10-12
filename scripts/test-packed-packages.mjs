@@ -40,6 +40,7 @@ try {
         "@nestjs/common": common,
         "@nestjs/core": core,
         "@nestjs/platform-ws": core,
+        "@nestjs/platform-socket.io": core,
         "@nestjs/websockets": core,
         "nestjs-adapter-node": `file:${join(tarballs, nodeArchive)}`,
         "nestjs-adapter-bun": `file:${join(tarballs, bunArchive)}`,
@@ -48,6 +49,7 @@ try {
         ws: "8.18.0",
         "class-validator": "0.15.1",
         "class-transformer": "0.5.1",
+        "socket.io-client": "4.8.4",
       },
       devDependencies: {
         "@types/bun": "1.4.2",
@@ -85,6 +87,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { WebSocket } from "ws";
+import { io as connectSocket } from "socket.io-client";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
@@ -120,6 +123,13 @@ class EchoGateway {
     return { event: "echo", data };
   }
 }
+@WebSocketGateway({ namespace: "chat" })
+class ChatGateway {
+  @SubscribeMessage("ping")
+  ping(@MessageBody() data: unknown) {
+    return { event: "pong", data };
+  }
+}
 @Controller()
 class GatewayHttpController {
   @Get("health")
@@ -127,6 +137,8 @@ class GatewayHttpController {
 }
 @Module({ controllers: [GatewayHttpController], providers: [EchoGateway] })
 class GatewayModule {}
+@Module({ controllers: [GatewayHttpController], providers: [ChatGateway] })
+class SocketIoModule {}
 const finished: string[] = [];
 const uploadState = { guards: 0, handlers: 0, paths: [] as string[] };
 @Injectable()
@@ -1165,6 +1177,41 @@ for (const trustProxy of [false, true]) {
     assert.deepEqual(await Promise.all(
       Array.from({ length: 8 }, (_, id) => exchange(id)),
     ), Array.from({ length: 8 }, (_, id) => ({ event: "echo", data: { id } })));
+    assert.deepEqual(await (await fetch(\`\${base}/health\`)).json(), { ok: true });
+  } finally {
+    await app.close();
+  }
+}
+{
+  const adapter = new NodeHttpAdapter();
+  const app = await NestFactory.create(SocketIoModule, adapter, { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    for (const transports of [["polling", "websocket"], ["websocket"]]) {
+      const exchangeSocketIo = (id: number) => new Promise<unknown>((resolve, reject) => {
+        const socket = connectSocket(\`\${base}/chat\`, { transports, forceNew: true });
+        const timer = setTimeout(() => {
+          socket.close();
+          reject(new Error(\`Socket.IO timed out for client \${id} (\${transports.join()})\`));
+        }, 5000);
+        socket.on("connect", () => socket.emit("ping", { id }));
+        socket.on("pong", (reply: unknown) => {
+          clearTimeout(timer);
+          socket.close();
+          resolve(reply);
+        });
+        socket.on("connect_error", (error) => {
+          clearTimeout(timer);
+          socket.close();
+          reject(error);
+        });
+      });
+      assert.deepEqual(await Promise.all(
+        Array.from({ length: 8 }, (_, id) => exchangeSocketIo(id)),
+      ), Array.from({ length: 8 }, (_, id) => ({ id })));
+    }
+    assert.equal((await fetch(\`\${base}/socket.io/socket.io.js\`)).status, 200);
     assert.deepEqual(await (await fetch(\`\${base}/health\`)).json(), { ok: true });
   } finally {
     await app.close();

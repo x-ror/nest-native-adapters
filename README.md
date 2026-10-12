@@ -1,8 +1,9 @@
 # nest-native-adapters
 
-Experimental native HTTP adapters for **real NestJS**: `node:http` on Node.js and
-`Bun.serve` on Bun. This is not an alternative Nest core. Nest owns modules, DI,
-decorators, guards, pipes, interceptors, exception filters, and application lifecycle.
+Experimental HTTP adapters that run NestJS on `node:http` (Node.js) and
+`Bun.serve` (Bun) without Express or Fastify. They replace only the HTTP
+platform. Nest still provides modules, DI, decorators, guards, pipes,
+interceptors, exception filters and the application lifecycle.
 
 ## Packages
 
@@ -11,20 +12,15 @@ decorators, guards, pipes, interceptors, exception filters, and application life
 | `nestjs-adapter-node` | `NodeHttpAdapter`, backed by `node:http` |
 | `nestjs-adapter-bun`  | `BunHttpAdapter`, backed by `Bun.serve`  |
 
-The two adapters include shared router, request parsing, and response code in their builds.
-`shared/` is internal source, not a separate npm package.
-Run `pnpm run build` before packing or publishing either adapter; only `dist/` is shipped. See Releasing below for publishing requirements. Supported baseline:
-NestJS **10.1.3/common + 10.2.8/core**, **11.0.0+**, or **12.1.2+**, Node.js 22+, current Bun.
-Neither adapter uses Express or Fastify. Express is a test-only reference and
-Fastify a benchmark-only one.
+The adapters support NestJS 10 (`@nestjs/common` 10.1.3+, `@nestjs/core` 10.2.8+),
+11.0.0+ and 12.1.2+, on Node.js 22+ or Bun 1.4+.
 
 ## Compatibility matrix
 
 | Capability                                           | Node adapter | Bun adapter   | Notes                                                                                      |
 | ---------------------------------------------------- | ------------ | ------------- | ------------------------------------------------------------------------------------------ |
-| Nest baseline                                        | Verified     | Verified      | Nest 10.1.3/common + 10.2.8/core, 11.0.0, 11.2.7 and 12.1.2                                |
-| Runtime                                              | Node.js 22+  | Current Bun   | Bun uses `Bun.serve`                                                                       |
-| Routing, middleware, guards, pipes, interceptors, DI | Supported    | Supported     | Shared adapter implementation                                                              |
+| Runtime                                              | Node.js 22+  | Bun 1.4+      | Bun uses `Bun.serve`                                                                       |
+| Routing, middleware, guards, pipes, interceptors, DI | Supported    | Supported     | Including request-scoped providers                                                         |
 | JSON and nested URL-encoded bodies                   | Supported    | Supported     | Parsed body limit defaults to 100 KiB                                                      |
 | Multipart forms                                      | Supported    | Supported     | Files are native `File` values on `@Body()` by default; opt-in disk streaming is available |
 | CORS                                                 | Supported    | Supported     | Same options and headers as `cors` (Express)                                               |
@@ -32,7 +28,7 @@ Fastify a benchmark-only one.
 | Cookies                                              | Supported    | Supported     | Nest's cookie API, `res.cookie()`, `cookie-parser`                                         |
 | Static assets                                        | Supported    | Supported     | `express.static` options, validators and byte ranges                                       |
 | Text, raw and custom-type bodies                     | Supported    | Supported     | Opt in with `app.useBodyParser(...)`                                                       |
-| Header, media-type and custom versioning             | Supported    | Supported     | Same per-handler matching as Nest's Express adapter                                        |
+| URI, header, media-type and custom versioning        | Supported    | Supported     | Same per-handler matching as Nest's Express adapter                                        |
 | Nest `@Sse()`                                        | Supported    | Supported     | Observable `MessageEvent` stream                                                           |
 | Streamed responses with `res.write()`                | Supported    | Supported     | Chunked; headers are sent on the first write                                               |
 | Response events (`res.on("finish")`)                 | Supported    | Supported     | `finish` and `close`; Node forwards to `ServerResponse`                                    |
@@ -41,22 +37,13 @@ Fastify a benchmark-only one.
 | Socket.IO gateways                                   | Supported    | Not supported | Automatic on Node; under Bun use the Node adapter                                          |
 | File upload interceptors                             | Supported    | Supported     | Memory storage by default; opt-in temporary disk streaming                                 |
 | MVC (`@Render()`)                                    | Supported    | Supported     | Express-compatible engines (`ejs`, `pug`, `hbs`)                                           |
-| Swagger documents and UI                             | Supported    | Supported     | 12.0.2 conformance; 7.3.0 checked with isolated Nest 10 controllers                        |
+| Swagger documents and UI                             | Supported    | Supported     | `@nestjs/swagger` 12 on Nest 12, 7 on Nest 10                                              |
 
 ## Usage
 
-### GraphQL integration
-
-The standard Nest `ApolloDriver` only recognizes Express/Fastify and rejects
-the native HTTP adapters. The private, experimental workspace package
-`packages/apollo` provides `NativeApolloDriver` for **Nest 10 / Apollo 4**
-and **Nest 12 / Apollo 5**;
-see [its usage and limitations](packages/apollo/README.md). It is not
-published to npm and is not included in either HTTP adapter's runtime dependencies.
-HTTP queries and mutations are covered by `pnpm run test:graphql`.
-Subscriptions are not currently supported.
-
-### HTTP adapters
+```sh
+npm install nestjs-adapter-node   # or nestjs-adapter-bun
+```
 
 ```ts
 import "reflect-metadata";
@@ -69,34 +56,78 @@ await app.listen(3000);
 ```
 
 For Bun, replace `NodeHttpAdapter` with `BunHttpAdapter` from
-`nestjs-adapter-bun` and run the application using Bun.
-Actual Nest requires `reflect-metadata`; the previous no-reflection framework
-experiment has been retired. Explicit `@Inject()` remains usable.
+`nestjs-adapter-bun` and run the application with Bun.
 
-### Existing Nest 10 applications
+The packages are ESM-only. TypeScript consumers need `@types/node`, and
+consumers that import the Bun adapter also need `@types/bun`.
 
-The adapters also accept Nest 10 without upgrading the application to Nest 12.
-The isolated packed-package matrix checks Nest 10, 11 and 12 on Node and Bun,
-including legacy wildcard middleware, disk uploads, cookie responses,
-DTO validation, guards/filters, versioned routes and streamed responses.
-This does not imply compatibility with every
-Express/Fastify plugin or external service in an existing application.
-Routes still use `path-to-regexp` 8 syntax: common legacy middleware wildcard
-segments are converted, but legacy regular-expression routes are not supported.
+Express plugins do not work with these adapters. `@Req()` gives you a
+`NativeRequest` with `.raw` (a web `Request`) and Nest's usual data fields.
+`@Res()` gives you a `NativeResponse` with `status`, `json`, `send`, `write`,
+`end`, `setHeader`, `getHeader` and `redirect`. It is not a Node
+`ServerResponse`. An unsupported adapter option throws an error instead of
+being ignored.
+
+`NativeRequest.headers` has Node's `IncomingHttpHeaders` type, so a header may
+be a string, an array, or absent. `hostname` can be absent too. Upload
+interceptors populate the optional `file` and `files` fields.
+
+### Migrating from Express or Fastify
+
+Controllers and providers that do not touch the request or response objects
+need no changes. Check the code that does:
+
+- Change adapter construction to `new NodeHttpAdapter()` or
+  `new BunHttpAdapter()`. Do not install Express/Fastify platform plugins.
+- Treat `@Req()` as `NativeRequest`. Its `.raw` is a Web `Request`, not an
+  Express `Request`, Fastify request, or Node `IncomingMessage`. On Node the
+  adapter builds `.raw` on first access, so read it only when you need it.
+- Treat `@Res()` as `NativeResponse`. `res.status(...).json(...)`,
+  `res.setHeader(...)`, `res.write(...)` and `res.on("finish" | "close")`
+  are available. On Node, `res.on(...)` forwards to the underlying response.
+  `req.ip`, `req.ips`, `req.protocol`, `req.secure`, `req.host`,
+  `req.hostname` and `req.subdomains` behave as on Express. Other
+  Express/Fastify APIs and plugin-specific methods are not available.
+- Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
+  `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
+  adapter package instead of `@nestjs/platform-express`. Multer's `fileFilter`
+  and per-interceptor limits are not supported. See Uploads.
+- Keep `app.enableCors(...)` as is. The options and resulting headers match
+  the `cors` package.
+- Keep `cookie-parser` if middleware or guards read `req.cookies`.
+  `res.cookie()` and `res.clearCookie()` behave as on Express. Nest's
+  `@Cookies()` and `@SignedCookies()` need no middleware.
+- Keep `app.useStaticAssets(root, options)`. It takes `express.static()`
+  options, including `maxAge` in milliseconds.
+- Pass Nest `httpsOptions` for native HTTPS, or terminate TLS at a reverse
+  proxy. Keep `app.set("trust proxy", ...)` as is, or pass the same value as
+  the `trustProxy` adapter option.
+- Pass full MIME strings such as `application/json` to `res.type()`. It
+  rejects Express extension shorthands such as `"json"`.
+
+If the application depends on Multer disk storage, Fastify plugins or
+Express-specific middleware, keep its existing platform adapter.
+[DEVIATIONS.md](DEVIATIONS.md) lists the remaining differences from Express.
+
+The request is not an `IncomingMessage` and has no `request.destroyed` flag.
+Middleware that skips response headers based on that flag may behave
+differently after a POST body has been read. `baseUrl` is always `""`.
+Listeners on `response.raw` also receive the completion of a buffered response.
+
+### Nest 10 applications
+
+The adapters accept Nest 10 without upgrading the application to Nest 12.
+Express and Fastify plugins used by an existing application still do not work.
+Routes still use `path-to-regexp` 8 syntax. The adapters convert common legacy
+middleware wildcards, but do not support legacy regular-expression routes.
 
 Nest 10 does not provide Nest 12's `cookies` application option or
 `@Cookies()` / `@SignedCookies()` decorators. Install `cookie-parser` to
-populate `request.cookies`, `request.signedCookies` and the signing secret;
-`res.cookie()` / `res.clearCookie()` work across the supported baselines. Nest 12 keeps
-using its built-in cookie serializer and application-level signer.
+populate `request.cookies`, `request.signedCookies` and the signing secret.
+`res.cookie()` and `res.clearCookie()` work on every supported Nest version.
+Nest 12 keeps using its built-in cookie serializer and application-level signer.
 
-The request facade is not an `IncomingMessage`: it does not expose Express's
-`request.destroyed` flag. Middleware that conditionally suppresses response
-headers based on that flag may therefore behave differently after a POST body
-has been read. Native requests expose `baseUrl: ""`; buffered response
-completion is also forwarded to listeners on `response.raw`.
-
-### Validation and Swagger
+### Validation and request scope
 
 Use Nest's `ValidationPipe` with `class-validator` and `class-transformer`
 installed in the application. Compile DTO classes with
@@ -104,13 +135,14 @@ installed in the application. Compile DTO classes with
 `reflect-metadata` before the application. Without emitted metadata, Nest
 cannot infer the DTO type for global validation.
 
-Nest request-scoped DI (`Scope.REQUEST` and the `REQUEST` injection token)
-is supported. A scoped provider is shared within one request across middleware,
-guards, interceptors, filters and the controller, but not across requests.
-Nest's scope bubbling applies: a controller or provider depending on a
-request-scoped provider becomes request-scoped without an explicit scope.
-The packed matrix covers sequential and overlapping authorized/rejected
-requests on all supported Nest baselines.
+The adapters support Nest's request-scoped DI (`Scope.REQUEST` and the
+`REQUEST` injection token). Middleware, guards, interceptors, filters and the
+controller share one instance of a scoped provider within a request. Separate
+requests get separate instances. Nest's scope bubbling applies. A controller
+or provider that depends on a request-scoped provider becomes request-scoped
+without an explicit scope.
+
+### Swagger
 
 `@nestjs/swagger` works with both adapters:
 
@@ -128,313 +160,85 @@ SwaggerModule.setup("docs", app, document, { useGlobalPrefix: true });
 This serves `/v1/docs/`, `/v1/docs-json`, and `/v1/docs-yaml`, including local
 Swagger UI scripts and styles. Describe DTO properties with `@ApiProperty()`
 and uploads with `@ApiConsumes("multipart/form-data")` / `@ApiBody()`.
-The conformance fixture uses these decorators; the Swagger CLI plugin is not
-verified. Swagger 12.0.2 declares TypeScript 5.5/6 peer support; the repository's
-TypeScript 7 tooling is outside that range, despite the runtime scenario passing.
-`NativeResponse.type()` supports full MIME strings such as `application/json`
-and `text/html`, but rejects Express extension shorthands such as `"json"`.
+The Swagger CLI plugin is untested.
 
-## Signed webhooks
+### GraphQL
 
-Pass `rawBody: true` to `NestFactory.create()` to retain the original payload
-as a `Buffer` on `NativeRequest.rawBody`, while still parsing JSON into
-`request.body`. Verify webhook signatures against that buffer, not
-`JSON.stringify(request.body)`: whitespace, line endings and Unicode encoding
-are part of the signed bytes.
+The standard Nest `ApolloDriver` only recognizes Express and Fastify and
+rejects these adapters. The experimental workspace package `packages/apollo`
+provides `NativeApolloDriver` for Nest 10 with Apollo 4 and Nest 12 with
+Apollo 5. Its [README](packages/apollo/README.md) covers usage and
+limitations. The package is not published to npm, and neither HTTP adapter
+depends on it. It supports HTTP queries and mutations, but not subscriptions.
 
-```ts
-const app = await NestFactory.create(AppModule, new NodeHttpAdapter({ bodyLimit: 1024 * 1024 }), {
-  rawBody: true,
-});
-```
+## Routing
 
-The same option works with `BunHttpAdapter`. For a custom JSON content type,
-register `app.useBodyParser("json", { type: "application/vnd.example+json" })`;
-Nest forwards the application's `rawBody` option to the parser. Binary payloads
-require `app.useBodyParser("raw")`. Keep body parsing enabled for these parsers.
-Limits count bytes, not characters, and apply before the controller is called.
-The packed matrix covers HMAC verification, multibyte UTF-8 split across
-chunked uploads, custom JSON/binary content types, invalid signatures,
-exact body-limit boundaries and recovery after malformed/oversized bodies.
+Routes use `path-to-regexp` 8 syntax with named parameters and wildcards.
+Route matching is case-sensitive. Repeated query-string keys become arrays.
 
-## Current scope
+### Host-based controllers
 
 Host-based controllers (`@Controller({ host: ":tenant.example.test" })`) and
-`@HostParam("tenant")` follow Nest's host filtering. Register specific hosts
-before broader patterns or host-independent fallback controllers when they
-share a route. Hostnames exclude the port. Forwarded host headers affect
-routing only when the adapter's `trustProxy` policy trusts the connection;
-enable that policy only for trusted proxies.
+`@HostParam("tenant")` follow Nest's host filtering. When several controllers
+share a route, register specific hosts before broader patterns and before
+controllers without a host. Hostnames exclude the port. Forwarded host headers
+affect routing only when the adapter's `trustProxy` policy trusts the
+connection. Host routing only selects a controller. It does not authorize
+access to a tenant.
 
-The packed matrix covers exact hosts, tenant parameters, host arrays,
-fallback routing, global prefixes and concurrent tenant requests on
-Nest 10/11/12 and Node/Bun. Host routing selects a controller; it is not a
-replacement for tenant authorization.
+### Versioning
 
-URI versioning follows Nest's route metadata: controller versions can be
-overridden by `@Version()`, a handler can accept multiple versions, and
-`VERSION_NEUTRAL` omits the version segment (but keeps the global prefix).
-`defaultVersion` applies to routes without explicit version metadata.
-The URI prefix defaults to `v`; configure `prefix: "release-"` or
-`prefix: false` through `app.enableVersioning()` when needed.
+The adapters support URI, header, media-type and custom versioning. With URI
+versioning, `@Version()` overrides the controller's version, a handler can
+accept several versions, and `VERSION_NEUTRAL` omits the version segment but
+keeps the global prefix. `defaultVersion` applies to routes without explicit
+version metadata. The URI prefix defaults to `v`. Change it with
+`prefix: "release-"` or `prefix: false` in `app.enableVersioning()`.
 
-The packed matrix covers these combinations on Nest 10/11/12 and Node/Bun,
-including controller middleware running exactly once for each version,
-query strings and rejection of nonexistent versions or unprefixed aliases.
+### Middleware and global-prefix exclusions
 
-Use `@Res({ passthrough: true })` when setting headers/cookies or a status
-while returning a value for Nest to serialize. `ClassSerializerInterceptor`
-still applies to returned class instances (including `@Exclude()` fields).
-With plain `@Res()`, the handler owns the response: call `json()`, `send()`
-or `end()`; Nest does not automatically send the returned value, and
-serialization does not apply to data you send manually.
-
-The packed matrix covers asynchronous passthrough/manual responses, cookie/
-header preservation, serialization, empty HTTP 204 responses, dynamic
-`@Redirect()` overrides and JSON exception responses after setting a non-JSON
-content type, on Nest 10/11/12 and Node/Bun.
-
-Nest middleware exclusions and global-prefix exclusions are separate:
-`consumer.apply(...).exclude(...).forRoutes(...)` skips only that middleware,
-whereas `app.setGlobalPrefix("api", { exclude: [...] })` leaves matching routes
+Middleware exclusions and global-prefix exclusions are separate.
+`consumer.apply(...).exclude(...).forRoutes(...)` skips only that middleware.
+`app.setGlobalPrefix("api", { exclude: [...] })` leaves matching routes
 unprefixed. An exclusion with `RequestMethod.GET` does not also exclude POST
-on the same path. Use unprefixed paths in both configurations.
+on the same path. Use unprefixed paths in both configurations. For example,
+excluding GET `health` from the global prefix serves GET `/health`, while POST
+remains at `/api/health`.
 
-The packed matrix covers method-specific exclusions, parameterized paths,
-string exclusions for all methods, query strings, middleware registration
-order and rejection of unintended unprefixed/prefixed route aliases on
-Nest 10/11/12 and Node/Bun. For example, excluding GET `health` from the
-global prefix serves GET `/health`, while POST remains at `/api/health`.
+## Responses
 
-Supported: HTTP routing with `path-to-regexp` 8 syntax, named parameters and
-wildcards; literal routes use an exact-path index while preserving registration
-order with dynamic routes and middleware. Query strings (repeated keys become
-arrays), global prefixes, URI, header, media-type and custom versioning, Nest
-middleware, JSON, nested URL-encoded and multipart form bodies, raw bodies,
-status/headers/cookies/redirects, HEAD/no-content responses, `StreamableFile`,
-Nest `@Sse()` routes returning Observables, and Nest's standard request pipeline.
-SSE event IDs, event types, retry values and multiline data are covered across
-the supported Nest versions. A client disconnect unsubscribes its Observable
-without closing other clients' streams. `Last-Event-ID` is available through
-request headers; application code must implement replay/resume itself.
-For legacy Nest SSE internals, the raw web request has a close-event bridge
-backed by its abort signal; this does not make it a Node `IncomingMessage`
-or provide arbitrary Node request events.
-Repeated form fields become arrays, bracket notation creates nested
-objects/arrays, and multipart file fields are exposed as native `File` values
-on `@Body()` by default. Opt-in disk-backed streaming exposes files through
-Nest's upload interceptors instead. Route matching is case-sensitive.
+Use `@Res({ passthrough: true })` when setting headers, cookies or a status
+while returning a value for Nest to serialize. `ClassSerializerInterceptor`
+still applies to returned class instances, including `@Exclude()` fields.
+With plain `@Res()`, the handler must send the response itself with `json()`,
+`send()` or `end()`. Nest does not send the returned value, and serialization
+does not apply to data the handler sends.
 
-Text, raw and extra JSON/URL-encoded media types are opt-in:
-`app.useBodyParser("text")`, `app.useBodyParser("raw", { limit: "1mb" })` or
-`app.useBodyParser("json", { type: "application/vnd.api+json" })`. `type` takes
-exact media types, `text/*`-style prefixes or `*/*`.
+Status, headers, cookies, redirects, HEAD and no-content responses and
+`StreamableFile` work as they do on Nest's Express adapter.
 
-The default parsed-body limit is 100 KiB; configure `new NodeHttpAdapter({
-bodyLimit: 1024 * 1024 })` or the same option on Bun. `shutdownTimeout` defaults
-to 5000 ms, after which outstanding connections are forcibly closed.
+`@Render()` works with Express-compatible view engines. Call
+`app.setBaseViewsDir(dir)` (default `./views`) and `app.setViewEngine("ejs")`,
+or pass `{ extension, render }` with any `(path, options, callback)` function.
+Express `app.locals` and view caching settings are not available.
 
-`app.close()` drains an active HTTP response, while `shutdownTimeout` bounds
-long-lived connections such as SSE. Nest's `forceCloseConnections: true`
-application option skips that grace period. Closing an SSE connection
-unsubscribes the producer Observable.
+### Response events and server handles
 
-Nest runs `onModuleDestroy()` and `beforeApplicationShutdown()` before closing
-the HTTP adapter, then `onApplicationShutdown()` afterward. Keep resources
-needed by in-flight handlers available until draining completes; use the
-final hook for their cleanup where appropriate. The adapter timeout bounds
-HTTP draining, not an application's own asynchronous shutdown hooks.
-The packed matrix covers hook order, successful in-flight responses, SSE
-cleanup on timeout/forced close and refusal of new connections after shutdown
-on Nest 10/11/12 and both runtimes.
+`NodeHttpAdapter#getHttpServer()` returns the Node `http.Server`. On Bun, the
+server object that Nest sees is a small object with the events and address
+that Nest's listen lifecycle needs. It is not a Node server. The Bun server is
+at its `.native` property.
 
-For large multipart uploads, opt into temporary disk-backed streaming:
+On Bun, `res.on("finish")` fires when the client has read the last chunk of a
+streamed body. For a buffered or file body it fires when the adapter hands the
+body to Bun, because Bun reports no later completion. `close` follows
+`finish`. A stream that the client abandons emits only `close`. The response
+supports the full EventEmitter listener API.
 
-```ts
-new NodeHttpAdapter({
-  uploadLimit: 10 * 1024 * 1024,
-  uploadFileLimit: 5 * 1024 * 1024,
-  uploadFilesLimit: 4,
-  uploadStorage: { directory: "/var/tmp/my-app-uploads" },
-});
-```
+### Server-sent events
 
-Use the same options with `BunHttpAdapter`. `uploadFileLimit` defaults to
-`uploadLimit`; `uploadFilesLimit` is unlimited when omitted. Exceeding either
-limit returns `413`. In disk mode, limits are enforced while parsing and
-streaming. The configured directory must already exist and be writable.
-Multipart fields are parsed as usual, but files are exposed through
-`@UploadedFile()` / `@UploadedFiles()` as `DiskUploadedFileData` (`path`,
-`destination`, `filename`, and metadata; no `buffer`). Temporary files are
-removed after the response completes. Move or copy a file from the controller
-if it must persist. Without `uploadStorage`, existing in-memory behavior is
-unchanged; per-file limits are checked after buffering, bounded by
-`uploadLimit`. With Nest's `rawBody` option, uploads use the in-memory path so
-`rawBody` can retain the complete request.
-
-Temporary disk uploads are also removed after guard/validator rejection or
-handler errors. Parsing happens before guards, so rejected requests can
-already have files on disk; cleanup still applies. Truncated multipart data
-returns HTTP 400, size/count limits return 413, and disk write failures remain
-server errors. The packed matrix covers these paths and concurrent successful/
-failed uploads on Nest 10/11/12 and both runtimes.
-
-These are **not drop-in Express plugin adapters**. `@Req()` exposes a
-`NativeRequest` with `.raw` (a web `Request`) and Nest's usual data fields.
-`@Res()` exposes `NativeResponse` with `status`, `json`, `send`, `write`, `end`,
-`setHeader`, `getHeader`, and `redirect`, not a Node `ServerResponse`.
-No Express-specific middleware APIs are provided. `@Render()` works with
-Express-compatible view engines: `app.setBaseViewsDir(dir)` (default `./views`)
-and `app.setViewEngine("ejs")`, or pass `{ extension, render }` with any
-`(path, options, callback)` function. Express `app.locals` and view caching
-settings are not provided. `@Sse()` streams Nest
-`MessageEvent` values as `text/event-stream`. `app.useStaticAssets()` serves
-files like `express.static()` (see Static files below). Unsupported adapter
-configuration throws instead of silently doing nothing. Do not assume browser
-cross-origin access is enabled: call `app.enableCors()` as on Express.
-
-### CORS
-
-`app.enableCors(options)` and `NestFactory.create(..., { cors })` take Nest's
-`CorsOptions` or a `CorsOptionsDelegate` and behave like the `cors` package
-that Nest's Express adapter installs. The conformance suite compares a dozen
-configurations header by header against Express.
-
-- Options are merged over the `cors` defaults (any origin, `GET,HEAD,PUT,PATCH,POST,DELETE`,
-  status `204`). An `origin` that is present but `undefined` overrides the
-  default, so `{ origin: process.env.CORS_ORIGIN }` with the variable unset
-  turns CORS **off** instead of allowing every origin. Static options are read
-  once by `enableCors()`; later changes to the object have no effect.
-- `origin` may be `*`, `true` (reflect the request origin), a string, a
-  `RegExp`, an array of those, or a callback. The callback also runs for
-  requests without an `Origin` header and receives `undefined`; an error it
-  passes becomes a 500 response, as on Express.
-- `methods`, `allowedHeaders` (alias `headers`) and `exposedHeaders` take
-  strings or arrays. An empty `methods` or `exposedHeaders` (`""` or `[]`) and
-  `allowedHeaders: []` send no header. Without `allowedHeaders`, or with
-  `allowedHeaders: ""` (unset, as in `cors`), the requested headers are
-  reflected and `Access-Control-Request-Headers` is added to `Vary`.
-- `credentials`, `maxAge`, `preflightContinue` and `optionsSuccessStatus` are
-  honored. Every `OPTIONS` request is answered as a preflight unless
-  `preflightContinue` is set, in which case it reaches the `@Options()` route
-  with the CORS headers already set.
-- A delegate may call back with no options to get the defaults. Static options
-  are compiled once; only delegates and origin callbacks run per request.
-
-> **Warning:** `origin: true` reflects any origin. Combined with
-> `credentials: true` (or its alias `allowCredentials: true`), any website can
-> make credentialed requests and read the responses. Use an allowlist for
-> credentialed APIs.
-
-Differences from Express: a `204` preflight carries no `Content-Length`
-header, as RFC 9110 requires; `methods: undefined` sends no
-`Access-Control-Allow-Methods` and `optionsSuccessStatus: undefined` falls back
-to `204`, where `cors` fails the preflight with a 500; and
-`allowCredentials: true` is accepted as an alias of `credentials: true`.
-
-Earlier releases of these adapters behaved differently. Review CORS
-configurations when upgrading:
-
-- a missing or `undefined` `origin`, and `origin: true`, sent `*`;
-- a `CorsOptionsDelegate` was ignored, so every origin got `*`;
-- the origin callback was skipped for requests without an `Origin` header;
-- `methods`, `allowedHeaders` and `exposedHeaders` only took arrays, and
-  string values were ignored; the default methods included `OPTIONS`;
-- only `OPTIONS` requests with `Access-Control-Request-Method` were treated
-  as preflights, always answered `204`, ignoring `preflightContinue` and
-  `optionsSuccessStatus`;
-- without an `Access-Control-Request-Headers` header, a fixed list of allowed
-  headers was sent, and `Vary` was overwritten instead of appended.
-
-### Cookies
-
-Nest's own cookie support works unchanged on both adapters: `@Cookies()`,
-`@SignedCookies()`, `httpAdapter.setCookie()` / `clearCookie()` and the
-`cookies: { secret }` application option. The decorators parse the `Cookie`
-header themselves, so they need no middleware.
-
-Like Express, the adapters do not fill `req.cookies` or `req.signedCookies`.
-To use them in middleware and guards, install `cookie-parser` as on Express:
-`app.use(cookieParser(secret))`. It works unchanged, including `j:` JSON
-cookies and signed cookies, and `@SignedCookies()` falls back to its result
-when `cookies.secret` is not configured. Signatures use the same
-`s:value.signature` format everywhere, so give both the same secret.
-
-For `@Res()` handlers migrated from Express, `NativeResponse` offers
-`res.cookie(name, value, options)` and `res.clearCookie(name, options)` with
-Express semantics:
-
-- objects become `j:`-prefixed JSON and other values are stringified;
-- `maxAge` is in **milliseconds** and also sets `Expires`, while `null` leaves
-  it out (Nest's `httpAdapter.setCookie()` takes `maxAge` in seconds);
-- `null` `domain`, `expires`, `priority` and `sameSite` are left out (also
-  when `false`), `sameSite: true` means `Strict`, and a falsy `path` sends an
-  empty `Path=`, which browsers treat like Express's missing Path;
-- `signed: true` uses the secret `cookie-parser` set, as Express does, and
-  otherwise `cookies.secret`.
-
-Cookies are serialized by Nest, so invalid names, values or attributes throw a
-`TypeError`, and `sameSite: "none"` or `partitioned` require `secure: true`.
-Express's `encode` option is not supported and throws.
-
-```ts
-@Get("login")
-login(@Res() res: NativeResponse) {
-  res
-    .cookie("session", token, { httpOnly: true, secure: true, maxAge: 86_400_000 })
-    .cookie("theme", "dark")
-    .json({ ok: true });
-}
-
-@Get("me")
-me(@Cookies("theme") theme: string, @SignedCookies("uid") uid?: string) {
-  return { theme, uid };
-}
-```
-
-### Migrating from Express or Fastify
-
-The controllers and Nest providers can generally stay unchanged, but audit all
-transport-specific code before replacing the platform adapter:
-
-- Change adapter construction to `new NodeHttpAdapter()` or
-  `new BunHttpAdapter()`. Do not install Express/Fastify platform plugins.
-- Treat `@Req()` as `NativeRequest`; its `.raw` is a Web `Request` (built on
-  first access on Node, so only touch it when you need it), not an
-  Express `Request`, Fastify request, or Node `IncomingMessage`.
-- Treat `@Res()` as `NativeResponse`. `res.status(...).json(...)` and
-  `res.setHeader(...)`, `res.write(...)` and `res.on("finish" | "close")`
-  are available; on Node `res.on(...)` forwards to the underlying response.
-  `req.ip`, `req.ips`, `req.protocol`, `req.secure`, `req.host`,
-  `req.hostname` and `req.subdomains` behave as on Express. Other
-  Express/Fastify APIs and plugin-specific methods are not.
-- Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
-  `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
-  adapter package instead of `@nestjs/platform-express`. Files have Multer's
-  memory-storage shape (`originalname`, `mimetype`, `size`, `buffer`) by
-  default. For large uploads, configure `uploadStorage` on the adapter to stream
-  file parts into temporary files; intercepted files then have the
-  `DiskUploadedFileData` shape (`path`, `destination`, `filename`, no `buffer`)
-  and are removed after the response. Move/copy files that need to persist.
-  Both paths are bounded by `uploadLimit`, which defaults to `bodyLimit`.
-  Without disk storage, files stay on `@Body()` as Web `File` objects.
-  Configure adapter-wide `uploadFileLimit` and `uploadFilesLimit`; Multer's
-  `fileFilter` and per-interceptor limits are not supported.
-- Keep `app.enableCors(...)` as is; the options and resulting headers match
-  the `cors` package. Keep `cookie-parser` if middleware or guards read
-  `req.cookies`; `res.cookie()` and `res.clearCookie()` behave as on Express.
-  Nest's `@Cookies()` and `@SignedCookies()` need no middleware.
-- Keep `app.useStaticAssets(root, options)`: it takes `express.static()`
-  options, including `maxAge` in milliseconds.
-- Pass Nest `httpsOptions` for native HTTPS, or terminate TLS at a reverse
-  proxy. Keep `app.set("trust proxy", ...)` as is, or pass the same value as
-  the `trustProxy` adapter option.
-
-If the application depends on Multer disk storage, Fastify plugins,
-Express middleware, retain the existing
-platform adapter for that application.
-
-Example SSE endpoint:
+`@Sse()` streams Nest `MessageEvent` values as `text/event-stream`, including
+event IDs, event types, retry values and multiline data:
 
 ```ts
 import { Controller, Sse } from "@nestjs/common";
@@ -452,14 +256,255 @@ export class EventsController {
 }
 ```
 
-### TLS behind a reverse proxy
+A client disconnect unsubscribes its Observable without closing other clients'
+streams. `Last-Event-ID` is available through request headers. Application
+code must implement replay and resume itself.
 
-The adapters serve HTTPS directly when Nest `httpsOptions` are given (verified
-on Node and Bun; Bun reads only `key`, `cert`, `ca` and `passphrase`). Otherwise terminate TLS at a reverse proxy such as Nginx,
-and keep the application listener reachable only from that proxy (for example,
-bind to `127.0.0.1` or a private container network). Configure the proxy's
-request-body limit to match the adapter's `bodyLimit`; the default parsed-body
-limit is 100 KiB.
+For SSE behind Nginx, keep response buffering disabled for the SSE location
+and set `proxy_read_timeout` to match the expected idle interval. The adapter
+sends `X-Accel-Buffering: no`, but the proxy's own configuration decides
+whether it buffers.
+
+## Request bodies
+
+The adapters parse JSON, nested URL-encoded and multipart form bodies by
+default. Repeated form fields become arrays, and bracket notation creates
+nested objects and arrays.
+
+Text, raw and extra JSON/URL-encoded media types are opt-in:
+`app.useBodyParser("text")`, `app.useBodyParser("raw", { limit: "1mb" })` or
+`app.useBodyParser("json", { type: "application/vnd.api+json" })`. `type` takes
+exact media types, `text/*`-style prefixes or `*/*`.
+
+The parsed-body limit defaults to 100 KiB. Raise it with
+`new NodeHttpAdapter({ bodyLimit: 1024 * 1024 })`, or the same option on
+`BunHttpAdapter`. Limits count bytes, not characters, and the adapter applies
+them before it calls the controller.
+
+### Signed webhooks
+
+Pass `rawBody: true` to `NestFactory.create()` to keep the original payload
+as a `Buffer` on `NativeRequest.rawBody`, while still parsing JSON into
+`request.body`. Verify webhook signatures against that buffer, not
+`JSON.stringify(request.body)`, because whitespace, line endings and Unicode
+encoding are part of the signed bytes.
+
+```ts
+const app = await NestFactory.create(AppModule, new NodeHttpAdapter({ bodyLimit: 1024 * 1024 }), {
+  rawBody: true,
+});
+```
+
+The same option works with `BunHttpAdapter`. For a custom JSON content type,
+register `app.useBodyParser("json", { type: "application/vnd.example+json" })`.
+Nest forwards the application's `rawBody` option to the parser. Binary payloads
+require `app.useBodyParser("raw")`. Keep body parsing enabled for these parsers.
+
+### Uploads
+
+By default the adapters hold multipart files in memory. Without an upload
+interceptor, files are native `File` values on `@Body()`. With
+`FileInterceptor`, `FilesInterceptor`, `FileFieldsInterceptor` or
+`AnyFilesInterceptor` (imported from the adapter package), files reach
+`@UploadedFile()` / `@UploadedFiles()` in Multer's memory-storage shape
+(`originalname`, `mimetype`, `size`, `buffer`).
+
+For large uploads, opt into temporary disk-backed streaming:
+
+```ts
+new NodeHttpAdapter({
+  uploadLimit: 10 * 1024 * 1024,
+  uploadFileLimit: 5 * 1024 * 1024,
+  uploadFilesLimit: 4,
+  uploadStorage: { directory: "/var/tmp/my-app-uploads" },
+});
+```
+
+Use the same options with `BunHttpAdapter`. The configured directory must
+already exist and be writable. The adapter parses multipart fields as usual
+and exposes files through `@UploadedFile()` / `@UploadedFiles()` as
+`DiskUploadedFileData` (`path`, `destination`, `filename`, and metadata, but
+no `buffer`). It removes the temporary files after the response completes,
+including when a guard or validator rejects the request or the handler throws.
+Move or copy a file in the controller if it must persist.
+
+- `uploadLimit` limits the complete multipart payload in both modes and
+  defaults to `bodyLimit`. `uploadFileLimit` defaults to `uploadLimit`.
+  `uploadFilesLimit` is unlimited when omitted.
+- A request over a size or count limit gets `413`. Truncated multipart data
+  gets `400`.
+- In disk mode the adapter enforces limits while streaming. In memory mode it
+  checks per-file limits after buffering at most `uploadLimit` bytes.
+- Parsing happens before guards, so a rejected request can already have files
+  on disk until its response completes.
+- With Nest's `rawBody` option, uploads stay in memory so that `rawBody` can
+  hold the complete request.
+- Multer's `fileFilter` and per-interceptor limits are not supported.
+
+## CORS
+
+Browser cross-origin access is off until you call `app.enableCors()`, as on
+Express. `app.enableCors(options)` and `NestFactory.create(..., { cors })` take
+Nest's `CorsOptions` or a `CorsOptionsDelegate` and behave like the `cors`
+package that Nest's Express adapter installs.
+
+- The adapters merge options over the `cors` defaults (any origin,
+  `GET,HEAD,PUT,PATCH,POST,DELETE`, status `204`). An `origin` that is present
+  but `undefined` overrides the default, so
+  `{ origin: process.env.CORS_ORIGIN }` with the variable unset turns CORS off
+  instead of allowing every origin. `enableCors()` reads static options once,
+  so later changes to the object have no effect.
+- `origin` may be `*`, `true` (reflect the request origin), a string, a
+  `RegExp`, an array of those, or a callback. The callback also runs for
+  requests without an `Origin` header and receives `undefined`. An error it
+  passes becomes a 500 response, as on Express.
+- `methods`, `allowedHeaders` (alias `headers`) and `exposedHeaders` take
+  strings or arrays. An empty `methods` or `exposedHeaders` (`""` or `[]`) and
+  `allowedHeaders: []` send no header. Without `allowedHeaders`, or with
+  `allowedHeaders: ""` (unset, as in `cors`), the adapters reflect the
+  requested headers and add `Access-Control-Request-Headers` to `Vary`.
+- The adapters honor `credentials`, `maxAge`, `preflightContinue` and
+  `optionsSuccessStatus`. They answer every `OPTIONS` request as a preflight
+  unless `preflightContinue` is set. In that case the request reaches the
+  `@Options()` route with the CORS headers already set.
+- A delegate may call back with no options to get the defaults. Only
+  delegates and origin callbacks run per request.
+
+> **Warning:** `origin: true` reflects any origin. Combined with
+> `credentials: true` (or its alias `allowCredentials: true`), any website can
+> make credentialed requests and read the responses. Use an allowlist for
+> credentialed APIs.
+
+Differences from Express:
+
+- A `204` preflight carries no `Content-Length` header, as RFC 9110 requires.
+- `methods: undefined` sends no `Access-Control-Allow-Methods`, and
+  `optionsSuccessStatus: undefined` falls back to `204`. The `cors` package
+  fails the preflight with a 500 in both cases.
+- `allowCredentials: true` works as an alias of `credentials: true`.
+
+## Cookies
+
+Nest's own cookie support works unchanged on both adapters: `@Cookies()`,
+`@SignedCookies()`, `httpAdapter.setCookie()` / `clearCookie()` and the
+`cookies: { secret }` application option. The decorators parse the `Cookie`
+header themselves, so they need no middleware.
+
+Like Express, the adapters do not fill `req.cookies` or `req.signedCookies`.
+To use them in middleware and guards, install `cookie-parser` as on Express
+with `app.use(cookieParser(secret))`. It works unchanged, including `j:` JSON
+cookies and signed cookies. `@SignedCookies()` falls back to its result
+when `cookies.secret` is not configured. Signatures use the same
+`s:value.signature` format everywhere, so give both the same secret.
+
+For `@Res()` handlers migrated from Express, `NativeResponse` offers
+`res.cookie(name, value, options)` and `res.clearCookie(name, options)` with
+Express semantics:
+
+- Objects become `j:`-prefixed JSON, and other values are stringified.
+- `maxAge` is in milliseconds and also sets `Expires`. `null` leaves it out.
+  Nest's `httpAdapter.setCookie()` takes `maxAge` in seconds.
+- `null` or `false` for `domain`, `expires`, `priority` and `sameSite` leaves
+  the attribute out. `sameSite: true` means `Strict`. A falsy `path` sends an
+  empty `Path=`, which browsers treat like Express's missing Path.
+- `signed: true` uses the secret that `cookie-parser` set, as Express does,
+  and otherwise `cookies.secret`.
+
+Nest serializes the cookies, so an invalid name, value or attribute throws a
+`TypeError`, and `sameSite: "none"` or `partitioned` requires `secure: true`.
+Express's `encode` option is not supported and throws.
+
+```ts
+@Get("login")
+login(@Res() res: NativeResponse) {
+  res
+    .cookie("session", token, { httpOnly: true, secure: true, maxAge: 86_400_000 })
+    .cookie("theme", "dark")
+    .json({ ok: true });
+}
+
+@Get("me")
+me(@Cookies("theme") theme: string, @SignedCookies("uid") uid?: string) {
+  return { theme, uid };
+}
+```
+
+## Static files
+
+`app.useStaticAssets(root, options)` behaves like `express.static()`, which
+Nest's Express adapter uses:
+
+- `ETag` and `Last-Modified` validators. `If-None-Match` and
+  `If-Modified-Since` get `304`. A failed `If-Match` or `If-Unmodified-Since`
+  gets `412`.
+- Single byte ranges get `206`, and unsatisfiable ones get `416`. Several
+  ranges, a malformed header or a stale `If-Range` send the whole file, as in
+  `send`.
+- `Cache-Control: public, max-age=…` from `maxAge` in milliseconds or a
+  duration such as `"1d"`, plus `immutable`.
+- Dotfiles are hidden by default (`dotfiles: "allow" | "deny" | "ignore"`).
+- A directory requested without its trailing slash gets a `301` redirect.
+- `index`, `extensions`, `setHeaders`, `fallthrough`, `etag`, `lastModified`,
+  `cacheControl` and `acceptRanges` work as in `express.static()`.
+- The adapter matches `prefix` per path segment, case-insensitively, like an
+  Express mount path. `/assets` serves `/assets/app.js` but not `/assetsapp.js`.
+
+Content types come from a built-in table that matches Express for common web
+files. The adapters send other extensions as `application/octet-stream`. They
+stream files from disk without buffering them. On Bun, a full file sent in
+response to a request with a `Range` header has no `Content-Length` when it is
+larger than 1 MiB, because Bun would otherwise apply the range itself.
+
+Point the root only at public assets. For high-volume delivery, use a CDN.
+
+## Trusted proxies
+
+By default the adapters ignore `X-Forwarded-*` headers, as Express does.
+`req.ip`, `@Ip()`, `req.protocol` and `req.hostname` describe the direct
+connection to the application. Behind a reverse proxy, tell the adapter which
+hops to trust, with the same values as Express's `trust proxy` setting:
+
+```ts
+new NodeHttpAdapter({ trustProxy: "loopback" }); // or BunHttpAdapter
+// or, as on Express, after creating the app:
+app.set("trust proxy", 1);
+```
+
+| Value                       | Trusts                                                                    |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `false` (default), `0`      | nothing                                                                   |
+| `true`                      | every hop; only when nothing else can reach the app                       |
+| a number `n`                | the nearest `n` hops                                                      |
+| a string or array           | addresses, CIDR or netmask ranges, `loopback`, `linklocal`, `uniquelocal` |
+| `(address, hop) => boolean` | whatever the function accepts; hop 0 is the socket peer                   |
+
+With a trusted socket peer, `req.ip` becomes the nearest untrusted
+`X-Forwarded-For` entry, `req.ips` lists the trusted chain farthest first,
+`req.protocol` follows `X-Forwarded-Proto`, and `req.hostname` follows
+`X-Forwarded-Host`. `req.host`, `req.secure` and `req.subdomains` use those
+resolved values.
+
+An invalid value, including a `/0` range, throws when you create the adapter
+or apply the setting, so the app fails at startup as on Express. `null`,
+`false` and `""` trust nothing.
+
+`app.set()` accepts any setting, but only `trust proxy` and
+`subdomain offset` have an effect. `x-powered-by` is accepted without a
+warning, because these adapters never send that header. Any other setting
+logs a warning that the adapter ignores it.
+
+> **Warning:** trust only the proxies in front of the application. With
+> `true` or a hop count larger than the real proxy chain, any client can set
+> its own `req.ip` through `X-Forwarded-For`.
+
+## TLS
+
+The adapters serve HTTPS directly when you pass Nest `httpsOptions` (Bun
+reads only `key`, `cert`, `ca` and `passphrase`). Otherwise terminate TLS at a
+reverse proxy such as Nginx, and keep the application listener reachable only
+from that proxy, for example by binding to `127.0.0.1` or a private container
+network. Set the proxy's request-body limit to match the adapter's
+`bodyLimit`, which defaults to 100 KiB.
 
 Example Nginx configuration for an app listening on `127.0.0.1:3000`:
 
@@ -488,90 +533,14 @@ server {
 }
 ```
 
-If using the `1m` proxy limit, configure the adapter with
+With the `1m` proxy limit, configure the adapter with
 `{ bodyLimit: 1024 * 1024 }`.
 
-### Static files
+## WebSockets
 
-`app.useStaticAssets(root, options)` behaves like `express.static()`, which
-Nest's Express adapter uses, and the conformance suite compares four option
-sets header by header against it:
+All WebSocket integrations need `@nestjs/websockets` installed in the application.
 
-- `ETag` and `Last-Modified` validators, with `If-None-Match` /
-  `If-Modified-Since` answered `304` and failed `If-Match` /
-  `If-Unmodified-Since` answered `412`;
-- single byte ranges answered `206` (several ranges, a malformed header or a
-  stale `If-Range` send the whole file, as in `send`), and unsatisfiable ones
-  `416`;
-- `Cache-Control: public, max-age=…` from `maxAge` in **milliseconds** or a
-  duration such as `"1d"`, plus `immutable`;
-- dotfiles hidden by default (`dotfiles: "allow" | "deny" | "ignore"`), a `301`
-  redirect for a directory requested without its trailing slash, `index`,
-  `extensions`, `setHeaders`, `fallthrough`, `etag`, `lastModified`,
-  `cacheControl` and `acceptRanges`;
-- the `prefix` is matched per path segment, case-insensitively, like an
-  Express mount path: `/assets` serves `/assets/app.js` but not `/assetsapp.js`.
-
-Content types come from a built-in table that matches Express for common web
-files; other extensions are sent as `application/octet-stream`. Files are
-streamed from disk. On Bun, a full file sent although the request had a
-`Range` header goes out without `Content-Length` when it is larger than 1 MiB,
-because Bun would otherwise apply the range itself.
-
-Earlier releases read `maxAge` in seconds, sent no validators and buffered
-whole files; `maxAge` now follows Express (milliseconds), so multiply old
-values by 1000.
-
-### Trusted proxies
-
-By default the adapters ignore `X-Forwarded-*` headers: `req.ip`, `@Ip()`,
-`req.protocol` and `req.hostname` describe the connection to the
-application, as on Express. Behind a reverse proxy, tell the adapter which
-hops to trust, with the same values as Express's `trust proxy` setting:
-
-```ts
-new NodeHttpAdapter({ trustProxy: "loopback" }); // or BunHttpAdapter
-// or, as on Express, after creating the app:
-app.set("trust proxy", 1);
-```
-
-| Value                       | Trusts                                                                    |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `false` (default), `0`      | nothing                                                                   |
-| `true`                      | every hop; only when nothing else can reach the app                       |
-| a number `n`                | the nearest `n` hops                                                      |
-| a string or array           | addresses, CIDR or netmask ranges, `loopback`, `linklocal`, `uniquelocal` |
-| `(address, hop) => boolean` | whatever the function accepts; hop 0 is the socket peer                   |
-
-With a trusted socket peer, `req.ip` becomes the nearest untrusted
-`X-Forwarded-For` entry, `req.ips` lists the trusted chain farthest first,
-`req.protocol` follows `X-Forwarded-Proto`, and `req.hostname` follows
-`X-Forwarded-Host`. The corresponding `req.host`, `req.secure` and
-`req.subdomains` reflect those resolved values. Real Nest HTTP consumers check
-both trusted and untrusted forwarded headers on Node and Bun; proxy-chain
-resolution is also compared with Express in the conformance suite. Invalid
-values, including a `/0` range, throw when the
-adapter is created or the setting is applied, so the app fails at startup as
-on Express; `null`, `false` and `""` trust nothing. `app.set()` accepts any
-setting like Express, but only `trust proxy` has an effect: `x-powered-by` is
-accepted silently (these adapters never send that header), and other settings
-log a warning that they are ignored.
-
-> **Warning:** trust only the proxies in front of the application. With
-> `true` or a hop count larger than the real proxy chain, any client can set
-> its own `req.ip` through `X-Forwarded-For`.
-
-The Node adapter exposes its real HTTP server through `getHttpServer()`.
-The Bun adapter exposes a small event/address facade for Nest's listen lifecycle,
-with the actual Bun server at `.native`; it is not a Node server. On Bun,
-`res.on("finish")` fires once the client has read the last chunk of a
-streamed body, or once a buffered or file body has been handed to Bun (Bun
-reports no later completion), and `close` follows; a stream the client
-abandons emits only `close`. The full EventEmitter listener API is available.
-
-### WebSockets
-
-On Node the adapter's server is a real `http.Server`, so Nest's own adapter
+On Node the adapter's server is a Node `http.Server`, so Nest's own adapter
 from `@nestjs/platform-ws` works unchanged:
 
 ```ts
@@ -589,157 +558,43 @@ app.useWebSocketAdapter(new BunWsAdapter(app));
 ```
 
 `BunWsAdapter` uses the same `{ "event": ..., "data": ... }` JSON messages as
-`WsAdapter`. Gateways are matched by `@WebSocketGateway({ path })`; separate
-ports and namespaces are not supported, and `@ConnectedSocket()` is Bun's
-`ServerWebSocket`.
-
-Packed consumers verify both integrations across Nest 10/11/12: concurrent
-WebSocket clients receive isolated replies, malformed and unknown events do
-not prevent later valid messages, and ordinary HTTP routes remain available
-on the shared port.
+`WsAdapter`. It matches gateways by `@WebSocketGateway({ path })` and does not
+support separate ports or namespaces. `@ConnectedSocket()` is Bun's
+`ServerWebSocket`. Other integrations can share the Bun server through
+`BunHttpAdapter#addSocketTransport`.
 
 ### Socket.IO
 
-With `NodeHttpAdapter` nothing is needed beyond installing
-`@nestjs/platform-socket.io`: Nest attaches Socket.IO to the adapter's
-`http.Server` by itself, as it does with Express. This also holds when the
-application runs under Bun, so `NodeHttpAdapter` is the way to use Socket.IO
-on the Bun runtime.
+With `NodeHttpAdapter`, install `@nestjs/platform-socket.io` and nothing else.
+Nest attaches Socket.IO to the adapter's `http.Server` itself, as it does with
+Express. This also works when the application runs under Bun, so use
+`NodeHttpAdapter` for Socket.IO on Bun.
 
-`BunHttpAdapter` does not support Socket.IO or `@nestjs/platform-ws`: both need
-a Node HTTP server, which `Bun.serve` does not provide. Starting such an
-application fails with an error that says so, rather than serving 404s.
+`BunHttpAdapter` does not support Socket.IO or `@nestjs/platform-ws`, because
+both need a Node HTTP server, which `Bun.serve` does not provide. Such an
+application fails at startup with an error that names the cause.
 
-All WebSocket integrations need `@nestjs/websockets` installed in the application.
-Other integrations can share the Bun server through
-`BunHttpAdapter#addSocketTransport`.
+## Shutdown
 
-### Operational notes
+`app.close()` stops accepting connections and waits for in-flight requests to
+finish. `shutdownTimeout` (default 5000 ms) limits that wait, and it also
+applies to long-lived connections such as SSE. When it expires, the adapter
+closes the remaining connections. Nest's `forceCloseConnections: true`
+application option skips the wait. Closing an SSE connection unsubscribes its
+Observable.
 
-- Multipart forms use in-memory native `File` values by default. Set
-  `uploadStorage: { directory }` on either adapter to stream file parts into
-  per-request temporary directories; `uploadLimit` bounds the complete
-  multipart payload in both modes. Disk-backed files are automatically removed
-  after the response, so move/copy them during the handler if they need to
-  persist. Nest's `rawBody` mode retains the in-memory parser path.
-- Static files are read from disk as they are sent, not buffered. Restrict
-  the configured root to public assets; a CDN still suits high-volume delivery.
-- For SSE behind Nginx, keep response buffering disabled for the SSE location
-  and set `proxy_read_timeout` to match the expected idle interval. The adapter
-  sends `X-Accel-Buffering: no`, but proxy configuration controls end-to-end
-  behavior.
-- `app.close()` stops accepting connections and waits for in-flight
-  requests, which still get their responses. `shutdownTimeout` (default
-  5000 ms) bounds that wait: when it expires, remaining connections are
-  closed. Nest's `forceCloseConnections: true` closes them at once. A client
-  that disconnects from an `@Sse()` stream unsubscribes its Observable. The
-  conformance suite checks all of this on Node and Bun.
+Nest runs `onModuleDestroy()` and `beforeApplicationShutdown()` before it
+closes the HTTP adapter, and `onApplicationShutdown()` afterward. In-flight
+handlers may still run during the first two hooks, so release the resources
+they need in `onApplicationShutdown()`. `shutdownTimeout` limits HTTP draining
+only, not the application's own asynchronous shutdown hooks.
 
-### Benchmarks
+## Contributing
 
-The benchmark exercises the same real Nest fixture over loopback for a native
-adapter and the Nest/Express reference. It supports a JSON GET, a parameterized
-route with repeated query fields, a JSON POST, or a round-robin mix of all
-three. The `router` workload generates static routes and measures the last
-registered route against 100, 1,000 and 10,000 route tables by default; set
-`BENCH_ROUTE_COUNTS=100,1000,10000` to choose other positive route counts. Each
-route-table size gets a fresh server process, with the same load-generator
-processes and settings. The benchmark server runs separately from multiple load-generator processes.
-Clients use persistent HTTP connections and synchronize measurement start after
-warmup to reduce client event-loop contention and process-start skew. It
-includes Nest's routing, DI, and fixture middleware, but does not model remote
-clients, uploads, static-file workloads, SSE, or reverse-proxy overhead:
-
-```sh
-pnpm bench          # NodeHttpAdapter on Node
-pnpm bench:express  # Nest/Express on Node
-pnpm bench:fastify  # Nest/Fastify on Node
-pnpm bench:bun               # BunHttpAdapter on Bun, Node load generators
-pnpm bench:bun-node-adapter  # NodeHttpAdapter on Bun, Node load generators
-```
-
-The defaults are three runs, each with 2 seconds of warmup, 10 seconds of
-measurement, and 32 total concurrent clients split across four client
-processes. Configure with `BENCH_RUNS`, `BENCH_WARMUP_MS`, `BENCH_DURATION_MS`,
-`BENCH_CONCURRENCY`, and `BENCH_CLIENT_PROCESSES`. Select
-`BENCH_WORKLOAD=json|route|post|mixed|router`; default is `json`. For example,
-`BENCH_WORKLOAD=router pnpm bench` runs the route-count comparison with the Node
-adapter; use `pnpm bench:express`, `pnpm bench:fastify`, or `pnpm bench:bun`
-with the same environment to compare platforms. Output includes each run's
-request rate, failures, mean latency, and approximate percentile upper bounds
-from a logarithmic histogram, plus mean throughput and standard deviation
-across runs. Run each mode on an otherwise idle machine and compare the same
-workload, runtime version, and environment. This harness is a reproducible
-local baseline, not a production load test or evidence of a performance
-advantage.
-
-## Development
-
-```sh
-pnpm install
-pnpm run check
-pnpm run test
-pnpm run test:bun
-pnpm run test:packed
-pnpm bench
-pnpm run dev
-```
-
-`test:packed` installs both built tarballs into clean temporary Nest 10, 11 and 12 projects,
-including Nest 11.0.0 and 11.2.7. It type-checks public imports and covers uploads,
-cookies, response events, global prefixes, route parameters, DTO transformation/
-validation, guards/filters, header versioning, streamed responses, HEAD and CORS
-on Node and Bun. This HTTP matrix does not extend the Apollo driver's supported
-Nest versions; its GraphQL stacks are listed separately.
-It also checks request-scoped provider identity across the pipeline, scope
-bubbling, and isolation of request headers across asynchronous concurrent handlers.
-Declaration checks run with `skipLibCheck: false`. TypeScript consumers need
-`@types/node`; consumers importing the Bun adapter also need `@types/bun`.
-`NativeRequest.headers` uses Node's `IncomingHttpHeaders` shape: arbitrary
-headers may be strings, arrays, or absent. `hostname` can be absent, and
-`file`/`files` are optional fields populated by upload interceptors.
-`test:conformance` and `test:bun` also run the same Nest integration fixture:
-DTO transformation/validation, pipeline order, guard rejection, exception
-filters, async service errors, Swagger schemas/UI assets, and single/multiple
-uploads in memory and on disk, including validation failures and cleanup.
-`dev` watches the Node example; `vp run build` builds both example entrypoints.
-Run `bun dist/bun.js` for the Bun example. Both expose `/hello/world` on port 3000.
-Dependency versions live in `pnpm-workspace.yaml` catalogs. The pnpm version is pinned
-in `package.json`.
-Vite+ handles builds, watch, formatting, Oxlint, type checks, and Vitest.
-TypeScript 7 is retained. No ESLint, Babel, or tsc-watch.
-
-Conformance checks execute the same real Nest module on each native adapter and
-Nest/Express. This is a compatibility baseline, not full framework conformance
-or evidence of a performance advantage. The former alternative-core prototype
-is retained only in Git history; its phases no longer describe this project's
-roadmap.
-
-Repository: <https://github.com/x-ror/nest-native-adapters>
-
-## Releasing
-
-Both packages share one version, recorded in `CHANGELOG.md`.
-
-1. Set the same `version` in `packages/platform-node/package.json` and
-   `packages/platform-bun/package.json`, and move the changelog's
-   Unreleased entries under that version.
-2. Push a tag `v<version>`. The Release workflow builds, runs the full
-   check, test, Bun and packed-consumer suites, checks that the tag matches
-   both packages and that a license is set, then publishes both packages to
-   npm with provenance using OIDC, without an npm token. For each npm package,
-   configure a GitHub Actions trusted publisher: user `x-ror`, repository
-   `nest-native-adapters`, workflow filename `release.yml`, environment `npm`,
-   and permission to run `npm publish`. The workflow uses GitHub-hosted runners
-   and npm CLI 11.19.0 (trusted publishing requires npm 11.5.1+).
-
-Trusted publishers are configured in the settings of existing npm packages.
-For a new package, bootstrap it through an authenticated manual publish before
-configuring its trusted publisher. After a successful OIDC publish, revoke
-unused publishing tokens and remove the `NPM_TOKEN` secret. Do not rerun an old
-token-based release workflow to test OIDC; it uses the workflow from its tag.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development, benchmarks and releasing.
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-[0BSD](LICENSE): use, copy, modify and distribute for any purpose, with or
-without attribution.
+[0BSD](LICENSE). You may use, copy, modify and distribute the code for any
+purpose, with or without attribution.
