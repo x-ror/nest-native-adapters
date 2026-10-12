@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed media-type and custom versioning coverage on Nest 10/11/12 and
+  Node/Bun: multiple accepted versions, neutral fallback, strict-route 404s,
+  registration-order matching and concurrent requests.
 - Callback-style `fileFilter` for all upload interceptors in interceptor
   parsing mode: accepts/skips before storage, supports delayed decisions,
   preserves file order and propagates errors with temporary-file cleanup.

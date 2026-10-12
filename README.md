@@ -196,6 +196,15 @@ keeps the global prefix. `defaultVersion` applies to routes without explicit
 version metadata. The URI prefix defaults to `v`. Change it with
 `prefix: "release-"` or `prefix: false` in `app.enableVersioning()`.
 
+Media-type versioning reads the configured parameter from `Accept` (for
+example, `application/json; v=2`). A custom extractor can return a version
+string or an array of acceptable versions. Matching follows handler
+registration order, not the order of that array; it does not automatically
+select the highest version. Register a `VERSION_NEUTRAL` fallback after
+version-specific handlers if missing or unknown versions should be accepted.
+Without a fallback, they return `404`. Packed consumers cover these cases,
+global prefixes and concurrent version selection on Nest 10/11/12 and Node/Bun.
+
 ### Middleware and global-prefix exclusions
 
 Middleware exclusions and global-prefix exclusions are separate.

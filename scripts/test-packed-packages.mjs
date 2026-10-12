@@ -123,6 +123,7 @@ import {
   VERSION_NEUTRAL, Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
   type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
+  type VersioningOptions,
   type OnModuleDestroy, type BeforeApplicationShutdown, type OnApplicationShutdown,
 } from "@nestjs/common";
 import { Observable } from "rxjs";
@@ -1065,6 +1066,81 @@ for (const prefix of ["v", "release-", false] as const) {
       assert.equal(response.status, 404, \`URI version aliases must not exist: \${path}\`);
       await response.text();
     }
+  } finally {
+    await app.close();
+  }
+}
+@Controller("negotiated")
+class NegotiatedController {
+  @Get("choice")
+  @Version("1")
+  first() { return { version: "1" }; }
+  @Get("choice")
+  @Version(["2", "3"])
+  second() { return { version: "2/3" }; }
+  @Get("choice")
+  @Version(VERSION_NEUTRAL)
+  fallback() { return { version: "neutral" }; }
+  @Get("strict")
+  @Version("2")
+  strict() { return { version: "2" }; }
+}
+@Module({ controllers: [NegotiatedController] })
+class NegotiatedModule {}
+for (const custom of [false, true]) {
+  const options: VersioningOptions = custom
+    ? {
+        type: VersioningType.CUSTOM,
+        extractor: (request: unknown) => {
+          const value = (request as NativeRequest).query.version;
+          return value === undefined ? [] : value;
+        },
+      }
+    : { type: VersioningType.MEDIA_TYPE, key: "v=" };
+  const app = await NestFactory.create(NegotiatedModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    app.setGlobalPrefix("api");
+    app.enableVersioning(options);
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const query = async (path: string, versions: string[]) => {
+      const search = custom && versions.length
+        ? "?" + new URLSearchParams(versions.map((version) => ["version", version])).toString()
+        : "";
+      const headers: Record<string, string> = custom ? {} : {
+        accept: versions.length ? "application/json; charset=utf-8; v=" + versions[0] : "application/json",
+      };
+      const response = await fetch(base + "/api/negotiated/" + path + search, { headers });
+      return { status: response.status, body: await response.json() };
+    };
+    for (const [versions, expected] of [
+      [["1"], "1"], [["2"], "2/3"], [["3"], "2/3"],
+      [["9"], "neutral"], [[], "neutral"],
+    ] as const) {
+      assert.deepEqual(await query("choice", [...versions]), {
+        status: 200, body: { version: expected },
+      });
+    }
+    assert.deepEqual(await query("strict", ["2"]), { status: 200, body: { version: "2" } });
+    for (const versions of [[], ["1"], ["9"]]) {
+      assert.equal((await query("strict", versions)).status, 404);
+    }
+    if (custom) {
+      assert.deepEqual(await query("choice", ["3", "1"]), {
+        status: 200, body: { version: "1" },
+      }, "Matching follows handler registration order, not extractor preference order");
+      assert.deepEqual(await query("choice", ["9", "3"]), {
+        status: 200, body: { version: "2/3" },
+      });
+    }
+    await Promise.all(Array.from({ length: 12 }, async (_, id) => {
+      const version = id % 2 ? "1" : "3";
+      assert.deepEqual(await query("choice", [version]), {
+        status: 200, body: { version: version === "1" ? "1" : "2/3" },
+      });
+    }));
   } finally {
     await app.close();
   }
