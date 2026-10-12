@@ -506,6 +506,10 @@ from that proxy, for example by binding to `127.0.0.1` or a private container
 network. Set the proxy's request-body limit to match the adapter's
 `bodyLimit`, which defaults to 100 KiB.
 
+Packed consumers verify direct HTTPS on Node and Bun for Nest 10/11/12 using
+an isolated, short-lived self-signed localhost certificate. They also confirm
+Nest request metadata reports `protocol: "https"` and `secure: true`.
+
 Example Nginx configuration for an app listening on `127.0.0.1:3000`:
 
 ```nginx

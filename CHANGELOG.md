@@ -8,6 +8,8 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed direct HTTPS checks across Nest 10/11/12 on Node/Bun, including
+  `httpsOptions` and Nest `req.protocol` / `req.secure` metadata.
 - Nest 11 support (11.0.0+).
 - Nest 10 support (`@nestjs/common` 10.1.3+, `@nestjs/core` 10.2.8+).
 - Experimental `nestjs-adapter-apollo` workspace package, not published to

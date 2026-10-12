@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +9,31 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const temporary = await mkdtemp(join(tmpdir(), "nestjs-adapter-packed-"));
 const tarballs = join(temporary, "tarballs");
+const tlsDirectory = mkdtempSync(join(tmpdir(), "nestjs-adapter-packed-tls-"));
 
 try {
   await mkdir(tarballs, { recursive: true });
+  const tlsKey = join(tlsDirectory, "key.pem");
+  const tlsCert = join(tlsDirectory, "cert.pem");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+      "-keyout",
+      tlsKey,
+      "-out",
+      tlsCert,
+    ],
+    { stdio: "ignore" },
+  );
   for (const name of ["nestjs-adapter-node", "nestjs-adapter-bun"]) {
     execFileSync("pnpm", ["--filter", name, "pack", "--pack-destination", tarballs], {
       cwd: root,
@@ -90,6 +113,7 @@ import { WebSocket } from "ws";
 import { io as connectSocket } from "socket.io-client";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
+import { get as httpsGet } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
@@ -116,6 +140,8 @@ import {
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
+const tlsKeyPath = ${JSON.stringify(tlsKey)};
+const tlsCertPath = ${JSON.stringify(tlsCert)};
 @WebSocketGateway({ path: "/ws" })
 class EchoGateway {
   @SubscribeMessage("echo")
@@ -134,6 +160,10 @@ class ChatGateway {
 class GatewayHttpController {
   @Get("health")
   health() { return { ok: true }; }
+  @Get("secure")
+  secure(@Req() request: NativeRequest) {
+    return { protocol: request.protocol, secure: request.secure };
+  }
 }
 @Module({ controllers: [GatewayHttpController], providers: [EchoGateway] })
 class GatewayModule {}
@@ -1217,6 +1247,44 @@ for (const trustProxy of [false, true]) {
     await app.close();
   }
 }
+{
+  const isBun = process.argv[2] === "bun";
+  const app = await NestFactory.create(
+    GatewayModule,
+    isBun ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    {
+      logger: false,
+      httpsOptions: { key: await readFile(tlsKeyPath), cert: await readFile(tlsCertPath) },
+    },
+  );
+  app.useWebSocketAdapter(isBun ? new BunWsAdapter(app) : new WsAdapter(app));
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = (await app.getUrl()).replace(/^http:/, "https:");
+    if (isBun) {
+      const response = await fetch(base + "/secure", {
+        tls: { rejectUnauthorized: false },
+      } as RequestInit);
+      assert.deepEqual(await response.json(), { protocol: "https", secure: true });
+    } else {
+      const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        httpsGet(base + "/secure", { rejectUnauthorized: false }, (incoming) => {
+          const chunks: Buffer[] = [];
+          incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+          incoming.on("error", reject);
+          incoming.on("end", () => resolve({
+            status: incoming.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString(),
+          }));
+        }).on("error", reject);
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(JSON.parse(response.body), { protocol: "https", secure: true });
+    }
+  } finally {
+    await app.close();
+  }
+}
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
     );
@@ -1242,4 +1310,5 @@ console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\
   }
 } finally {
   await rm(temporary, { recursive: true, force: true });
+  await rm(tlsDirectory, { recursive: true, force: true });
 }
