@@ -462,6 +462,11 @@ or disk path. `request.body` contains fields received so far, so fields sent
 after the file may not yet be available. `UploadFileFilter` is exported by
 both packages.
 
+Client disconnection cancels streaming multipart parsing and removes temporary
+upload files, including while an asynchronous filter decision is pending.
+Callbacks arriving after cancellation are ignored. This does not cancel work
+started by your filter; use `request.raw.signal` to stop that work.
+
 Skipped files still count toward `limits.files` and the total payload limit;
 their contents are not subject to the accepted-file size limit. MIME types
 and names are supplied by the client: filtering them does not validate file

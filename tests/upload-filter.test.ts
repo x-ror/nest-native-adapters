@@ -105,3 +105,88 @@ it("validates filter configuration and callback decisions", async () => {
     parseMemoryMultipart(await requestFor(["a"]), 4096, 1024, 1, filter),
   ).rejects.toThrow("boolean acceptance");
 });
+
+it("cancels pending filter decisions on client abort and ignores late acceptance", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-filter-abort-"));
+  try {
+    for (const disk of [false, true]) {
+      for (const complete of [false, true]) {
+        const controller = new AbortController();
+        let accept: (() => void) | undefined;
+        let filterStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+          filterStarted = resolve;
+        });
+        let cancelled = false;
+        const body = new ReadableStream<Uint8Array>({
+          start(stream) {
+            stream.enqueue(
+              new TextEncoder().encode(
+                '--abort\r\nContent-Disposition: form-data; name="file"; filename="partial.txt"\r\n\r\npartial',
+              ),
+            );
+            if (complete) {
+              stream.enqueue(new TextEncoder().encode("\r\n--abort--\r\n"));
+              stream.close();
+            }
+          },
+          cancel() {
+            cancelled = true;
+          },
+        });
+        const request = createRequest(
+          new Request("http://localhost/upload", {
+            method: "POST",
+            signal: controller.signal,
+            headers: { "content-type": "multipart/form-data; boundary=abort" },
+            body,
+            duplex: "half",
+          } as RequestInit),
+        );
+        const filter: UploadFileFilter = (_request, _file, callback) => {
+          accept = () => callback(null, true);
+          filterStarted();
+        };
+        const parsing = disk
+          ? parseDiskMultipart(request, 4096, directory, 1024, 1, filter)
+          : parseMemoryMultipart(request, 4096, 1024, 1, filter);
+        const failed = expect(parsing).rejects.toMatchObject({ status: 400 });
+        await started;
+        if (complete) await new Promise((resolve) => setTimeout(resolve, 20));
+        controller.abort();
+        await failed;
+        accept!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        if (!complete) expect(cancelled).toBe(true);
+        expect(await readdir(directory)).toEqual([]);
+      }
+    }
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+}, 2000);
+
+it("rejects already-aborted uploads without calling the filter or leaving a directory", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-filter-preabort-"));
+  try {
+    for (const disk of [false, true]) {
+      const controller = new AbortController();
+      controller.abort();
+      const original = await requestFor(["first.txt"]);
+      const request = createRequest(new Request(original.raw, { signal: controller.signal }));
+      let called = false;
+      const filter: UploadFileFilter = (_request, _file, callback) => {
+        called = true;
+        callback(null, true);
+      };
+      const parsing = disk
+        ? parseDiskMultipart(request, 4096, directory, 1024, 1, filter)
+        : parseMemoryMultipart(request, 4096, 1024, 1, filter);
+      await expect(parsing).rejects.toMatchObject({ status: 400 });
+      expect(called).toBe(false);
+      expect(await readdir(directory)).toEqual([]);
+    }
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

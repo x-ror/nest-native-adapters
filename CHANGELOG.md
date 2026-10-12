@@ -49,6 +49,10 @@ version and one changelog. The format follows
 
 ### Fixed
 
+- Client disconnection cancels streaming multipart uploads and cleans temporary
+  files even while an asynchronous `fileFilter` decision is pending. Late
+  callbacks cannot resume storage after cancellation. Packed consumers cover
+  interrupted memory/disk uploads on Nest 10/11/12 and Node/Bun.
 - Truncated disk multipart uploads return HTTP 400 instead of 500.
 - SSE streams on older Nest versions no longer terminate immediately.
 - Request types include the optional upload interceptor fields, and allow

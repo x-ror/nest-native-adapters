@@ -1366,6 +1366,13 @@ const filterUpload: UploadFileFilter = (request, file, callback) => {
   }
 };
 const filterOptions: UploadInterceptorOptions = { fileFilter: filterUpload };
+const cancelledUploads = { started: 0, handlers: 0, decisions: [] as (() => void)[] };
+const cancellationFilter: UploadFileFilter = (request, _file, callback) => {
+  cancelledUploads.started++;
+  if (request.headers["x-pending"] === "yes")
+    cancelledUploads.decisions.push(() => callback(null, true));
+  else callback(null, true);
+};
 class DeferredUploadGuard implements CanActivate {
   canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<NativeRequest>();
@@ -1377,6 +1384,9 @@ class DeferredUploadGuard implements CanActivate {
 @Controller("local-upload")
 @UseGuards(DeferredUploadGuard)
 class LocalUploadController {
+  @Post("cancel")
+  @UseInterceptors(LocalFile("file", { fileFilter: cancellationFilter }))
+  cancel() { cancelledUploads.handlers++; return { unexpected: true }; }
   @Post("small")
   @UseInterceptors(LocalFile("file", localLimits))
   small(@UploadedFile() file: NativeUpload, @Body() body: Record<string, unknown>) {
@@ -1501,6 +1511,55 @@ for (const disk of [false, true]) {
         status: 201, body: { name: id % 2 ? "keep.txt" : null },
       });
     }));
+    const waitFor = async (condition: () => Promise<boolean>) => {
+      const end = Date.now() + 3000;
+      while (Date.now() < end) {
+        if (await condition()) return;
+        await delay(10);
+      }
+      throw new Error("Cancelled upload cleanup timed out");
+    };
+    await waitFor(async () => (await readdir(uploadDirectory)).length === 0);
+    for (const pending of [false, true]) {
+      const beforeStarted = cancelledUploads.started;
+      const beforeHandlers = cancelledUploads.handlers;
+      const request = httpRequest(base + "/local-upload/cancel", {
+        method: "POST", headers: {
+          "x-allow": "yes", "x-pending": pending ? "yes" : "no",
+          "content-type": "multipart/form-data; boundary=cancel",
+        },
+      });
+      let clientError: Error | undefined;
+      request.on("error", (error) => { clientError = error; });
+      try {
+        request.write('--cancel\\r\\nContent-Disposition: form-data; name="file"; filename="partial.txt"\\r\\n\\r\\nx');
+        await waitFor(async () => cancelledUploads.started === beforeStarted + 1);
+        if (disk && !pending) {
+          await waitFor(async () => {
+            const directories = await readdir(uploadDirectory);
+            if (!directories.length) return false;
+            return (await readdir(uploadDirectory + "/" + directories[0])).length === 1;
+          });
+        }
+        assert.equal(clientError, undefined);
+        const closed = new Promise<void>((resolve) => request.once("close", resolve));
+        request.destroy();
+        await closed;
+        if (disk) await waitFor(async () => (await readdir(uploadDirectory)).length === 0);
+        if (pending) {
+          cancelledUploads.decisions.pop()!();
+          await delay(20);
+        }
+        assert.equal(cancelledUploads.handlers, beforeHandlers);
+        assert.deepEqual(await readdir(uploadDirectory), []);
+        assert.deepEqual(await post("small", 4), {
+          status: 201, body: { size: 4, note: "fixture" },
+        }, "Server must still accept uploads after client cancellation");
+        await waitFor(async () => (await readdir(uploadDirectory)).length === 0);
+      } finally {
+        request.destroy();
+      }
+    }
     await Promise.all(Array.from({ length: 8 }, async (_, id) => {
       const oversized = id % 2 === 0;
       assert.equal((await post("small", oversized ? 5 : 4)).status, oversized ? 413 : 201);

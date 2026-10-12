@@ -128,12 +128,23 @@ async function parseMultipart(
     const decision = fileFilter
       ? new Promise<boolean>((resolve, reject) => {
           let called = false;
-          const onError = (error: Error) => reject(error);
+          const clear = () => {
+            stream.off("error", onError);
+            request.raw.signal.removeEventListener("abort", onAbort);
+          };
+          const onError = (error: Error) => {
+            if (called) return;
+            called = true;
+            clear();
+            reject(error);
+          };
+          const onAbort = () => onError(new Error("Upload request was aborted."));
           stream.once("error", onError);
+          request.raw.signal.addEventListener("abort", onAbort, { once: true });
           const callback = (error: Error | null, accept?: boolean) => {
             if (called) return;
             called = true;
-            stream.off("error", onError);
+            clear();
             if (error) {
               filterError = error;
               reject(error);
@@ -144,6 +155,10 @@ async function parseMultipart(
               reject(filterError);
             } else resolve(accept);
           };
+          if (request.raw.signal.aborted) {
+            onAbort();
+            return;
+          }
           try {
             fileFilter(request, metadata, callback);
           } catch (error) {
@@ -154,6 +169,8 @@ async function parseMultipart(
         })
       : Promise.resolve(true);
     const write = decision.then(async (accept) => {
+      if (request.raw.signal.aborted || stream.destroyed)
+        throw new Error("Upload request was aborted.");
       if (!accept) {
         await pipeline(
           stream,
@@ -162,6 +179,7 @@ async function parseMultipart(
               callback();
             },
           }),
+          { signal: request.raw.signal },
         );
         return;
       }
@@ -204,7 +222,7 @@ async function parseMultipart(
       destinationStream.on("error", (error) => {
         if (!stream.errored && !counter.errored) writeError ??= error;
       });
-      await pipeline(stream, counter, destinationStream);
+      await pipeline(stream, counter, destinationStream, { signal: request.raw.signal });
       if (file) {
         file.size = size;
         collectedFiles[index] = () => {
@@ -238,6 +256,7 @@ async function parseMultipart(
       ),
       limiter,
       parser,
+      { signal: request.raw.signal },
     );
     await Promise.all(fileWrites);
     if (limitError) throw limitError;
