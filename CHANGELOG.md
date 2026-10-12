@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed nested URL-encoded form coverage on Nest 10/11/12 and Node/Bun:
+  DTO transformation/validation, arrays, Unicode, invalid paths, byte limits,
+  parser-error recovery and concurrent requests.
 - Packed MVC rendering coverage on Nest 10/11/12 and Node/Bun with EJS and
   asynchronous custom engines, view lookup, HEAD, rendering errors and
   concurrent template data.

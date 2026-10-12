@@ -288,6 +288,12 @@ The adapters parse JSON, nested URL-encoded and multipart form bodies by
 default. Repeated form fields become arrays, and bracket notation creates
 nested objects and arrays.
 
+Packed consumers cover nested URL-encoded DTO transformation and validation,
+indexed arrays, repeated fields, Unicode, invalid form paths, exact byte-limit
+boundaries and concurrent requests on Nest 10/11/12 and Node/Bun. Use
+`@Type(() => ChildDto)` with `@ValidateNested({ each: true })` for arrays of
+child DTOs; numeric fields also need explicit transformation metadata.
+
 Text, raw and extra JSON/URL-encoded media types are opt-in:
 `app.useBodyParser("text")`, `app.useBodyParser("raw", { limit: "1mb" })` or
 `app.useBodyParser("json", { type: "application/vnd.api+json" })`. `type` takes

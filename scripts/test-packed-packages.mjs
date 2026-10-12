@@ -139,7 +139,7 @@ import {
 import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
 import { Exclude, Type } from "class-transformer";
-import { IsInt, Min } from "class-validator";
+import { IsArray, IsInt, IsString, Min, ValidateNested } from "class-validator";
 import { NestFactory, REQUEST } from "@nestjs/core";
 import { WsAdapter } from "@nestjs/platform-ws";
 import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
@@ -1709,6 +1709,90 @@ for (const custom of [false, true]) {
       const response = await fetch(base + "/api/pages/hello/guest-" + id);
       assert.equal(response.status, 200);
       assert.equal(await response.text(), \`<h1>Hello guest-\${id}</h1>\`);
+    }));
+  } finally {
+    await app.close();
+  }
+}
+class FormItemDto {
+  @IsString()
+  name!: string;
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  quantity!: number;
+}
+class NestedFormDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => FormItemDto)
+  items!: FormItemDto[];
+  @IsArray()
+  @IsString({ each: true })
+  tags!: string[];
+}
+let formHandlers = 0;
+@Controller("forms")
+class FormController {
+  @Post("nested")
+  nested(@Body() body: NestedFormDto) {
+    assert.ok(body instanceof NestedFormDto);
+    assert.ok(body.items.every((item) => item instanceof FormItemDto));
+    formHandlers++;
+    return body;
+  }
+  @Post("raw")
+  raw(@Body() body: unknown) { formHandlers++; return body; }
+}
+@Module({ controllers: [FormController] })
+class FormModule {}
+{
+  const options = { bodyLimit: 256 };
+  const app = await NestFactory.create(FormModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter(options) : new NodeHttpAdapter(options),
+    { logger: false });
+  try {
+    app.useGlobalPipes(new ValidationPipe({
+      transform: true, whitelist: true, forbidNonWhitelisted: true,
+    }));
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const post = async (path: string, body: string) => {
+      const response = await fetch(base + "/forms/" + path, {
+        method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const valid = "items[0][name]=hello+world&items[0][quantity]=2&items[1][name]=%D0%BA%D0%B8%D1%97%D0%B2&items[1][quantity]=3&tags[]=one&tags[]=two";
+    const expected = {
+      items: [{ name: "hello world", quantity: 2 }, { name: "київ", quantity: 3 }],
+      tags: ["one", "two"],
+    };
+    assert.deepEqual(await post("nested", valid), { status: 201, body: expected });
+    assert.deepEqual(await post("raw", "tag=one&tag=two&empty=&flag"), {
+      status: 201, body: { tag: ["one", "two"], empty: "", flag: "" },
+    });
+    const before = formHandlers;
+    for (const body of [
+      valid.replace("quantity]=2", "quantity]=0"), valid + "&extra=forbidden",
+      "items[0][name]=one&items[0][quantity]=nope&tags[]=one",
+      "items[broken=1", "list[]=one&list[key]=two",
+    ]) {
+      assert.equal((await post("nested", body)).status, 400);
+    }
+    assert.equal(formHandlers, before, "Invalid forms must never reach handlers");
+    assert.equal((await post("raw", "a=" + "x".repeat(254))).status, 201);
+    assert.equal((await post("raw", "a=" + "x".repeat(255))).status, 413);
+    const unicodeBody = "a=" + "ї".repeat(128);
+    assert.ok(unicodeBody.length < 256);
+    assert.ok(Buffer.byteLength(unicodeBody) > 256);
+    assert.equal((await post("raw", unicodeBody)).status, 413);
+    assert.deepEqual(await post("nested", valid), { status: 201, body: expected });
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      const body = "items[0][name]=item-" + id + "&items[0][quantity]=" + (id + 1) + "&tags[]=parallel";
+      assert.deepEqual(await post("nested", body), {
+        status: 201, body: { items: [{ name: "item-" + id, quantity: id + 1 }], tags: ["parallel"] },
+      });
     }));
   } finally {
     await app.close();
