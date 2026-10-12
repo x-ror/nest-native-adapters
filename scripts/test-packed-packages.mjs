@@ -84,7 +84,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HttpCode, Inject,
+  Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
   Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
@@ -992,6 +992,77 @@ for (const prefix of ["v", "release-", false] as const) {
       assert.equal(response.status, 404, \`URI version aliases must not exist: \${path}\`);
       await response.text();
     }
+  } finally {
+    await app.close();
+  }
+}
+@Controller({ path: "site", host: "admin.example.test" })
+class AdminHostController {
+  @Get(":id")
+  get(@Param("id") id: string) { return { site: "admin", id }; }
+}
+@Controller({ path: "site", host: ":tenant.example.test" })
+class TenantHostController {
+  @Get(":id")
+  async get(@HostParam("tenant") tenant: string, @Param("id") id: string) {
+    await delay(10);
+    return { site: "tenant", tenant, id };
+  }
+}
+@Controller({ path: "site", host: ["alias.example.org", "second.example.org"] })
+class AliasHostController {
+  @Get(":id")
+  get(@Param("id") id: string) { return { site: "alias", id }; }
+}
+@Controller("site")
+class DefaultHostController {
+  @Get(":id")
+  get(@Param("id") id: string, @HostParam() hosts: Record<string, string>) {
+    return { site: "default", id, hosts };
+  }
+}
+@Module({ controllers: [AdminHostController, TenantHostController, AliasHostController, DefaultHostController] })
+class HostsModule {}
+for (const trustProxy of [false, true]) {
+  const adapter = process.argv[2] === "bun"
+    ? new BunHttpAdapter({ trustProxy }) : new NodeHttpAdapter({ trustProxy });
+  const app = await NestFactory.create(HostsModule, adapter, { logger: false });
+  try {
+    app.setGlobalPrefix("api");
+    await app.listen(0, "127.0.0.1");
+    const endpoint = \`\${await app.getUrl()}/api/site/42\`;
+    const query = async (host: string, forwarded?: string) => {
+      return new Promise<unknown>((resolve, reject) => {
+        const request = httpRequest(endpoint, {
+          headers: { host, ...(forwarded ? { "x-forwarded-host": forwarded } : {}) },
+        }, (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("error", reject);
+          response.on("end", () => {
+            try {
+              assert.equal(response.statusCode, 200);
+              resolve(JSON.parse(Buffer.concat(chunks).toString()));
+            } catch (error) { reject(error); }
+          });
+        });
+        request.on("error", reject);
+        request.end();
+      });
+    };
+    assert.deepEqual(await query("admin.example.test:8080"), { site: "admin", id: "42" });
+    assert.deepEqual(await query("alpha.example.test"), { site: "tenant", tenant: "alpha", id: "42" });
+    for (const host of ["alias.example.org", "second.example.org"]) {
+      assert.deepEqual(await query(host), { site: "alias", id: "42" });
+    }
+    assert.deepEqual(await query("unknown.example.org"), { site: "default", id: "42", hosts: {} });
+    assert.deepEqual(await query("direct.example.org", "proxy.example.test:8443"),
+      trustProxy ? { site: "tenant", tenant: "proxy", id: "42" }
+        : { site: "default", id: "42", hosts: {} });
+    await Promise.all(Array.from({ length: 8 }, async (_, index) => {
+      const tenant = \`tenant-\${index}\`;
+      assert.deepEqual(await query(\`\${tenant}.example.test\`), { site: "tenant", tenant, id: "42" });
+    }));
   } finally {
     await app.close();
   }

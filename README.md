@@ -159,6 +159,18 @@ exact body-limit boundaries and recovery after malformed/oversized bodies.
 
 ## Current scope
 
+Host-based controllers (`@Controller({ host: ":tenant.example.test" })`) and
+`@HostParam("tenant")` follow Nest's host filtering. Register specific hosts
+before broader patterns or host-independent fallback controllers when they
+share a route. Hostnames exclude the port. Forwarded host headers affect
+routing only when the adapter's `trustProxy` policy trusts the connection;
+enable that policy only for trusted proxies.
+
+The packed matrix covers exact hosts, tenant parameters, host arrays,
+fallback routing, global prefixes and concurrent tenant requests on
+Nest 10/11/12 and Node/Bun. Host routing selects a controller; it is not a
+replacement for tenant authorization.
+
 URI versioning follows Nest's route metadata: controller versions can be
 overridden by `@Version()`, a handler can accept multiple versions, and
 `VERSION_NEUTRAL` omits the version segment (but keeps the global prefix).
