@@ -26,6 +26,7 @@ export type {
   StaticAssetsOptions,
   TrustProxy,
   UploadedFileData,
+  UploadInterceptorOptions,
   ViewRenderer,
 } from "@shared";
 

@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Opt-in `uploadParsing: "interceptor"` with streaming per-interceptor
+  `limits.fileSize` and `limits.files` for all four upload interceptors on
+  Node/Bun, in memory and on disk. Guards run before multipart parsing, and
+  adapter-level limits remain upper bounds.
 - Packed direct HTTPS checks across Nest 10/11/12 on Node/Bun, including
   `httpsOptions` and Nest `req.protocol` / `req.secure` metadata.
 - Nest 11 support (11.0.0+).

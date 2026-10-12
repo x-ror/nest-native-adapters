@@ -91,7 +91,8 @@ need no changes. Check the code that does:
 - Keep `@UploadedFile()` / `@UploadedFiles()` and import `FileInterceptor`,
   `FilesInterceptor`, `FileFieldsInterceptor` or `AnyFilesInterceptor` from the
   adapter package instead of `@nestjs/platform-express`. Multer's `fileFilter`
-  and per-interceptor limits are not supported. See Uploads.
+  is not supported. Per-interceptor limits require opt-in interceptor parsing.
+  See Uploads.
 - Keep `app.enableCors(...)` as is. The options and resulting headers match
   the `cors` package.
 - Keep `cookie-parser` if middleware or guards read `req.cookies`.
@@ -339,7 +340,48 @@ Move or copy a file in the controller if it must persist.
   on disk until its response completes.
 - With Nest's `rawBody` option, uploads stay in memory so that `rawBody` can
   hold the complete request.
-- Multer's `fileFilter` and per-interceptor limits are not supported.
+- Multer's `fileFilter` is not supported.
+
+#### Per-interceptor streaming limits
+
+Opt in to parsing multipart inside upload interceptors, after guards:
+
+```ts
+new NodeHttpAdapter({
+  uploadParsing: "interceptor",
+  uploadLimit: 10 * 1024 * 1024,
+});
+
+@Post("avatar")
+@UseInterceptors(FileInterceptor("avatar", {
+  limits: { fileSize: 256 * 1024, files: 1 },
+}))
+upload(@UploadedFile() file: UploadedFile) {
+  return { size: file.size };
+}
+```
+
+The same mode works on Bun and with optional `uploadStorage`. Both storage
+modes enforce `limits.fileSize` (bytes per file) and `limits.files` (total file
+count) during streaming, returning `413` without waiting for the complete
+payload. Local limits cannot increase the adapter's global limits.
+Values must be nonnegative safe integers; zero permits only empty files or
+no files, respectively.
+
+Options occupy the second argument of `FileInterceptor`,
+`FileFieldsInterceptor` and `AnyFilesInterceptor`, and the third argument of
+`FilesInterceptor(fieldName, maxCount, options)`. `maxCount` and unexpected-field
+checks retain their existing behavior after parsing. These options are typed as
+`UploadInterceptorOptions`; other Multer limits are not supported.
+
+In this opt-in mode, multipart bodies and files are unavailable to middleware,
+guards and interceptors running before the upload interceptor. Every route
+that needs multipart `@Body()` must install an upload interceptor, even without
+local limits. JSON and URL-encoded parsing are unchanged. The mode cannot be
+combined with Nest's `rawBody: true` option and fails at startup if it is.
+Using local limits in the default middleware-parsing mode throws an explicit
+configuration error on multipart requests; it does not claim to enforce them
+retroactively. The default mode and existing interceptor calls are unchanged.
 
 ## CORS
 

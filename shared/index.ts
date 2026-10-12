@@ -29,7 +29,8 @@ import {
   type NativeRequest,
 } from "./request.js";
 import { NativeResponse, writeCookie, type CookieSerializeOptions } from "./response.js";
-import { parseDiskMultipart } from "./multipart.js";
+import { parseDiskMultipart, parseMemoryMultipart } from "./multipart.js";
+import { deferUploadParsing } from "./uploads.js";
 import { compileTrust, type TrustFunction, type TrustProxy } from "./proxy.js";
 import { serveStatic, type StaticAssetsOptions } from "./static.js";
 
@@ -42,6 +43,7 @@ export {
   type DiskUploadedFileData,
   type UploadedFile,
   type UploadedFileData,
+  type UploadInterceptorOptions,
 } from "./uploads.js";
 export {
   ClientRequest,
@@ -73,6 +75,8 @@ export interface NativeAdapterOptions {
   uploadFilesLimit?: number;
   /** Stream multipart file parts into temporary files instead of buffering them in memory. */
   uploadStorage?: { directory?: string };
+  /** Opt in to multipart parsing inside upload interceptors, after guards. */
+  uploadParsing?: "middleware" | "interceptor";
   shutdownTimeout?: number;
   /**
    * Express's `trust proxy` setting, which decides when `X-Forwarded-For`,
@@ -121,6 +125,13 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
   constructor(protected readonly adapterOptions: NativeAdapterOptions = {}) {
     super();
     const options = adapterOptions;
+    if (
+      options.uploadParsing !== undefined &&
+      options.uploadParsing !== "middleware" &&
+      options.uploadParsing !== "interceptor"
+    ) {
+      throw new TypeError('uploadParsing must be "middleware" or "interceptor".');
+    }
     if (
       options.bodyLimit !== undefined &&
       (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit <= 0)
@@ -426,6 +437,36 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       if (!isParsedMethod(req.method) || req.body !== undefined) return next();
       const kind = kindOf(mediaType(req.headers["content-type"]));
       if (kind === undefined) return next();
+      if (kind === "multipart" && this.adapterOptions.uploadParsing === "interceptor") {
+        deferUploadParsing(req, async (limits) => {
+          if (req.body !== undefined)
+            throw new Error("Multipart body was already parsed before the upload interceptor.");
+          const fileLimit = Math.min(uploadFileLimit, limits?.fileSize ?? uploadFileLimit);
+          const filesLimit =
+            limits?.files === undefined
+              ? uploadFilesLimit
+              : Math.min(uploadFilesLimit ?? Infinity, limits.files);
+          const parsed = this.adapterOptions.uploadStorage
+            ? await parseDiskMultipart(
+                req,
+                uploadLimit,
+                this.adapterOptions.uploadStorage.directory,
+                fileLimit,
+                filesLimit,
+              )
+            : await parseMemoryMultipart(req, uploadLimit, fileLimit, filesLimit);
+          req.body = parsed.body;
+          req.uploads = parsed.files;
+          res.once("close", () => {
+            void parsed
+              .cleanup()
+              .catch((error: unknown) =>
+                console.error("Temporary multipart upload cleanup failed", error),
+              );
+          });
+        });
+        return next();
+      }
       if (kind === "multipart" && this.adapterOptions.uploadStorage && !rawBody) {
         return parseDiskMultipart(
           req,
@@ -598,6 +639,8 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
     this.shuttingDown = true;
   }
   protected validateApplicationOptions(options: NestApplicationOptions): void {
+    if (options.rawBody && this.adapterOptions.uploadParsing === "interceptor")
+      throw new Error('rawBody cannot be combined with uploadParsing: "interceptor".');
     this.return503OnClosing = options.return503OnClosing ?? false;
   }
 }

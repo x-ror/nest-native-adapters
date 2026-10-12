@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { Transform, Readable } from "node:stream";
+import { Transform, Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import Busboy from "busboy";
 import { BadRequestException, PayloadTooLargeException } from "@nestjs/common";
@@ -27,22 +27,43 @@ export async function parseDiskMultipart(
   fileSizeLimit = limit,
   filesLimit?: number,
 ): Promise<ParsedDiskMultipart> {
+  return parseMultipart(request, limit, { directory: rootDirectory }, fileSizeLimit, filesLimit);
+}
+
+export async function parseMemoryMultipart(
+  request: NativeRequest,
+  limit: number,
+  fileSizeLimit = limit,
+  filesLimit?: number,
+): Promise<ParsedDiskMultipart> {
+  return parseMultipart(request, limit, undefined, fileSizeLimit, filesLimit);
+}
+
+async function parseMultipart(
+  request: NativeRequest,
+  limit: number,
+  storage: { directory?: string } | undefined,
+  fileSizeLimit: number,
+  filesLimit?: number,
+): Promise<ParsedDiskMultipart> {
   const bodyStream = request.raw.body;
   const headers = new Headers(request.raw.headers);
   if (!bodyStream) return { body: Object.create(null), files: [], cleanup: async () => {} };
 
-  let destination: string;
-  try {
-    destination = await mkdtemp(join(rootDirectory ?? tmpdir(), "nestjs-upload-"));
-  } catch (error) {
-    throw new Error("Could not create temporary upload directory.", { cause: error });
+  let destination: string | undefined;
+  if (storage) {
+    try {
+      destination = await mkdtemp(join(storage.directory ?? tmpdir(), "nestjs-upload-"));
+    } catch (error) {
+      throw new Error("Could not create temporary upload directory.", { cause: error });
+    }
   }
 
   let cleaned = false;
   const cleanup = async (): Promise<void> => {
     if (cleaned) return;
     cleaned = true;
-    await rm(destination, { recursive: true });
+    if (destination) await rm(destination, { recursive: true });
   };
   const body = Object.create(null) as Record<string, unknown>;
   const files: DiskUploadFile[] = [];
@@ -77,37 +98,57 @@ export async function parseDiskMultipart(
   });
   parser.on("filesLimit", () => {
     limitError ??= new PayloadTooLargeException();
+    queueMicrotask(() => parser.destroy(limitError));
   });
   parser.on("file", (fieldname, stream, info) => {
     const filename = randomUUID();
-    const path = join(destination, filename);
-    const file: DiskUploadFile = {
-      fieldname,
-      originalname: info.filename ?? "",
-      encoding: info.encoding,
-      mimetype: info.mimeType.split(";")[0]!,
-      size: 0,
-      destination,
-      filename,
-      path,
-    };
-    files.push(file);
+    const file: DiskUploadFile | undefined = destination
+      ? {
+          fieldname,
+          originalname: info.filename ?? "",
+          encoding: info.encoding,
+          mimetype: info.mimeType.split(";")[0]!,
+          size: 0,
+          destination,
+          filename,
+          path: join(destination, filename),
+        }
+      : undefined;
+    if (file) files.push(file);
     let size = 0;
+    const chunks: Buffer[] = [];
     const counter = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         size += chunk.length;
+        if (size > fileSizeLimit) {
+          limitError ??= new PayloadTooLargeException();
+          callback(limitError);
+          return;
+        }
         callback(null, chunk);
       },
     });
-    const destinationStream = createWriteStream(path, { flags: "wx", mode: 0o600 });
+    const destinationStream = file
+      ? createWriteStream(file.path, { flags: "wx", mode: 0o600 })
+      : new Writable({
+          write(chunk: Buffer, _encoding, callback) {
+            chunks.push(chunk);
+            callback();
+          },
+        });
     // Observe disk errors before pipeline propagates them back to the source.
     // Parser errors already present on the source must stay client errors.
     destinationStream.on("error", (error) => {
       if (!stream.errored && !counter.errored) writeError ??= error;
     });
     const write = pipeline(stream, counter, destinationStream).then(() => {
-      file.size = size;
-      if (size > fileSizeLimit) limitError ??= new PayloadTooLargeException();
+      if (file) file.size = size;
+      else
+        assignFormValue(
+          body,
+          formFieldPath(fieldname),
+          new File([Buffer.concat(chunks, size)], info.filename ?? "", { type: info.mimeType }),
+        );
     });
     fileWrites.push(write);
     void write.catch((error: unknown) => {
@@ -137,6 +178,7 @@ export async function parseDiskMultipart(
   } catch (error) {
     await Promise.allSettled(fileWrites);
     await cleanup();
+    if (limitError) throw limitError;
     if (error instanceof PayloadTooLargeException) throw error;
     if (writeError !== undefined) throw writeError;
     if (error instanceof BadRequestException) throw error;

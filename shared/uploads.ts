@@ -6,7 +6,20 @@ import {
   type NestInterceptor,
   type Type,
 } from "@nestjs/common";
-import type { DiskUploadFile } from "./request.js";
+import { mediaType, type DiskUploadFile, type NativeRequest } from "./request.js";
+
+export interface UploadInterceptorOptions {
+  /** Streaming limits, bounded by the adapter's global upload limits. */
+  limits?: { fileSize?: number; files?: number };
+}
+
+// Both adapter packages bundle this module; interceptors can cross package boundaries.
+const PARSE_UPLOAD = Symbol.for("nestjs-native-adapters.parseUpload");
+type UploadParser = (limits: UploadInterceptorOptions["limits"]) => Promise<void>;
+
+export function deferUploadParsing(request: NativeRequest, parse: UploadParser): void {
+  (request as UploadRequest)[PARSE_UPLOAD] = parse;
+}
 
 /** An uploaded file in the shape Multer's memory storage produces. */
 export interface UploadedFileData {
@@ -24,6 +37,8 @@ interface UploadRequest {
   file?: UploadedFile;
   files?: UploadedFile[] | Record<string, UploadedFile[]>;
   uploads?: DiskUploadFile[];
+  headers?: NativeRequest["headers"];
+  [PARSE_UPLOAD]?: UploadParser;
 }
 
 // Moves the files of one top-level field out of the parsed multipart body.
@@ -67,11 +82,28 @@ function fileFields(request: UploadRequest, body: Record<string, unknown>): stri
 
 function uploadInterceptor(
   collect: (request: UploadRequest, body: Record<string, unknown>) => Promise<void>,
+  options: UploadInterceptorOptions,
 ): Type<NestInterceptor> {
+  const limits = options.limits ? { ...options.limits } : undefined;
+  for (const [name, value] of Object.entries(limits ?? {})) {
+    if (name !== "fileSize" && name !== "files")
+      throw new TypeError(`Unsupported upload limit: ${name}`);
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
+      throw new TypeError(`Upload limit ${name} must be a nonnegative integer.`);
+  }
   return mixin(
     class {
       async intercept(context: ExecutionContext, next: CallHandler) {
         const request = context.switchToHttp().getRequest<UploadRequest>();
+        if (request[PARSE_UPLOAD]) {
+          await request[PARSE_UPLOAD](limits);
+          delete request[PARSE_UPLOAD];
+        } else if (
+          limits &&
+          mediaType(request.headers?.["content-type"]) === "multipart/form-data"
+        ) {
+          throw new Error('Per-interceptor upload limits require uploadParsing: "interceptor".');
+        }
         const body = request.body;
         if (body !== null && typeof body === "object")
           await collect(request, body as Record<string, unknown>);
@@ -93,29 +125,37 @@ function validateMaxCount(maxCount: number): void {
 }
 
 /** Like Multer's `FileInterceptor`: one file from `fieldName` for `@UploadedFile()`. */
-export function FileInterceptor(fieldName: string): Type<NestInterceptor> {
+export function FileInterceptor(
+  fieldName: string,
+  options: UploadInterceptorOptions = {},
+): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
     reject(request, body, [fieldName]);
     const files = await takeFiles(request, body, fieldName);
     if (files.length > 1) throw new BadRequestException(`Unexpected field - ${fieldName}`);
     request.file = files[0];
-  });
+  }, options);
 }
 
 /** Like Multer's `FilesInterceptor`: every file from `fieldName` for `@UploadedFiles()`. */
-export function FilesInterceptor(fieldName: string, maxCount = Infinity): Type<NestInterceptor> {
+export function FilesInterceptor(
+  fieldName: string,
+  maxCount = Infinity,
+  options: UploadInterceptorOptions = {},
+): Type<NestInterceptor> {
   validateMaxCount(maxCount);
   return uploadInterceptor(async (request, body) => {
     reject(request, body, [fieldName]);
     const files = await takeFiles(request, body, fieldName);
     if (files.length > maxCount) throw new BadRequestException(`Too many files - ${fieldName}`);
     request.files = files;
-  });
+  }, options);
 }
 
 /** Like Multer's `FileFieldsInterceptor`: `@UploadedFiles()` gets files grouped by field. */
 export function FileFieldsInterceptor(
   fields: { name: string; maxCount?: number }[],
+  options: UploadInterceptorOptions = {},
 ): Type<NestInterceptor> {
   for (const { maxCount = Infinity } of fields) validateMaxCount(maxCount);
   return uploadInterceptor(async (request, body) => {
@@ -131,15 +171,15 @@ export function FileFieldsInterceptor(
       if (files.length) grouped[name] = files;
     }
     request.files = grouped;
-  });
+  }, options);
 }
 
 /** Like Multer's `AnyFilesInterceptor`: every uploaded file, whatever its field. */
-export function AnyFilesInterceptor(): Type<NestInterceptor> {
+export function AnyFilesInterceptor(options: UploadInterceptorOptions = {}): Type<NestInterceptor> {
   return uploadInterceptor(async (request, body) => {
     const files: UploadedFile[] = [];
     for (const field of fileFields(request, body))
       files.push(...(await takeFiles(request, body, field)));
     request.files = files;
-  });
+  }, options);
 }

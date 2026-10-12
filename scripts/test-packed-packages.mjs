@@ -119,7 +119,7 @@ import {
   Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
   Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
-  UnauthorizedException, UploadedFile, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
+  UnauthorizedException, UploadedFile, UploadedFiles, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   VERSION_NEUTRAL, Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
   type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
@@ -132,10 +132,18 @@ import { IsInt, Min } from "class-validator";
 import { NestFactory, REQUEST } from "@nestjs/core";
 import { WsAdapter } from "@nestjs/platform-ws";
 import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
-import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
-import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse } from "nestjs-adapter-node";
+import {
+  NodeHttpAdapter, FileInterceptor as NodeFileInterceptor, FilesInterceptor as NodeFilesInterceptor,
+  FileFieldsInterceptor as NodeFileFieldsInterceptor, AnyFilesInterceptor as NodeAnyFilesInterceptor,
+} from "nestjs-adapter-node";
+import type {
+  DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse,
+  UploadedFile as NativeUpload, UploadInterceptorOptions,
+} from "nestjs-adapter-node";
 import {
   BunHttpAdapter, BunWsAdapter, FileInterceptor as BunFileInterceptor,
+  FilesInterceptor as BunFilesInterceptor, FileFieldsInterceptor as BunFileFieldsInterceptor,
+  AnyFilesInterceptor as BunAnyFilesInterceptor,
 } from "nestjs-adapter-bun";
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
@@ -1246,6 +1254,128 @@ for (const trustProxy of [false, true]) {
   } finally {
     await app.close();
   }
+}
+const localLimits: UploadInterceptorOptions = { limits: { fileSize: 4, files: 1 } };
+const LocalFile = process.argv[2] === "bun" ? BunFileInterceptor : NodeFileInterceptor;
+const LocalFiles = process.argv[2] === "bun" ? BunFilesInterceptor : NodeFilesInterceptor;
+const LocalFields = process.argv[2] === "bun" ? BunFileFieldsInterceptor : NodeFileFieldsInterceptor;
+const LocalAny = process.argv[2] === "bun" ? BunAnyFilesInterceptor : NodeAnyFilesInterceptor;
+class DeferredUploadGuard implements CanActivate {
+  canActivate(context: ExecutionContext) {
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    assert.equal(request.body, undefined);
+    assert.equal(request.uploads, undefined);
+    return request.headers["x-allow"] === "yes";
+  }
+}
+@Controller("local-upload")
+@UseGuards(DeferredUploadGuard)
+class LocalUploadController {
+  @Post("small")
+  @UseInterceptors(LocalFile("file", localLimits))
+  small(@UploadedFile() file: NativeUpload, @Body() body: Record<string, unknown>) {
+    return { size: file.size, note: body.note };
+  }
+  @Post("large")
+  @UseInterceptors(LocalFile("file", { limits: { fileSize: 16 } }))
+  large(@UploadedFile() file: NativeUpload) { return { size: file.size }; }
+  @Post("many")
+  @UseInterceptors(LocalFiles("file", 2, localLimits))
+  many(@UploadedFiles() files: NativeUpload[]) { return files.map((file) => file.size); }
+  @Post("fields")
+  @UseInterceptors(LocalFields([{ name: "file" }], localLimits))
+  fields(@UploadedFiles() files: Record<string, NativeUpload[]>) {
+    return files.file!.map((file) => file.size);
+  }
+  @Post("any")
+  @UseInterceptors(LocalAny(localLimits))
+  any(@UploadedFiles() files: NativeUpload[]) { return files.map((file) => file.size); }
+  @Post("plain")
+  @UseInterceptors(LocalFile("file"))
+  plain(@UploadedFile() file: NativeUpload) { return { size: file.size }; }
+  @Post("failure")
+  @UseInterceptors(LocalFile("file", localLimits))
+  failure() { throw new ConflictException("upload failed"); }
+}
+@Module({ controllers: [LocalUploadController] })
+class LocalUploadModule {}
+for (const disk of [false, true]) {
+  const options: NativeAdapterOptions = {
+    uploadParsing: "interceptor", uploadLimit: 4096, uploadFileLimit: 8, uploadFilesLimit: 2,
+    ...(disk ? { uploadStorage: { directory: uploadDirectory } } : {}),
+  };
+  const app = await NestFactory.create(LocalUploadModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter(options) : new NodeHttpAdapter(options),
+    { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const post = async (
+      path: string, size: number, count = 1, allowed = true, field = "file", note = "fixture",
+    ) => {
+      const form = new FormData();
+      form.append("note", note);
+      for (let i = 0; i < count; i++) form.append(field, new Blob(["x".repeat(size)]), \`\${i}.txt\`);
+      const response = await fetch(\`\${base}/local-upload/\${path}\`, {
+        method: "POST", headers: { "x-allow": allowed ? "yes" : "no" }, body: form,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    for (const path of ["small", "many", "fields", "any"]) {
+      assert.deepEqual(await post(path, 4), {
+        status: 201, body: path === "small" ? { size: 4, note: "fixture" } : [4],
+      });
+      assert.equal((await post(path, 5)).status, 413);
+      assert.equal((await post(path, 1, 2)).status, 413);
+    }
+    assert.deepEqual(await post("large", 8), { status: 201, body: { size: 8 } });
+    assert.equal((await post("large", 9)).status, 413);
+    assert.equal((await post("large", 1, 3)).status, 413);
+    assert.equal((await post("small", 100, 1, false)).status, 403);
+    assert.deepEqual(await post("plain", 8), { status: 201, body: { size: 8 } });
+    assert.equal((await post("plain", 9)).status, 413);
+    assert.equal((await post("small", 1, 1, true, "unexpected")).status, 400);
+    assert.equal((await post("failure", 4)).status, 409);
+    assert.equal((await post("small", 1, 1, true, "file", "x".repeat(4096))).status, 413);
+    const malformed = await fetch(base + "/local-upload/small", {
+      method: "POST", headers: {
+        "x-allow": "yes", "content-type": "multipart/form-data; boundary=truncated",
+      },
+      body: '--truncated\\r\\nContent-Disposition: form-data; name="file"; filename="partial.txt"\\r\\n\\r\\nx',
+    });
+    assert.equal(malformed.status, 400);
+    await malformed.arrayBuffer();
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      const oversized = id % 2 === 0;
+      assert.equal((await post("small", oversized ? 5 : 4)).status, oversized ? 413 : 201);
+    }));
+    await new Promise<void>((resolve, reject) => {
+      const request = httpRequest(base + "/local-upload/small", {
+        method: "POST", headers: {
+          "x-allow": "yes", "content-type": "multipart/form-data; boundary=early",
+        },
+      });
+      const timer = setTimeout(() => {
+        request.destroy();
+        reject(new Error("Local file limit waited for the entire request body"));
+      }, 3000);
+      request.on("error", (error) => { clearTimeout(timer); reject(error); });
+      request.on("response", (response) => {
+        response.resume();
+        response.on("end", () => {
+          clearTimeout(timer);
+          try { assert.equal(response.statusCode, 413); resolve(); }
+          catch (error) { reject(error); }
+          finally { request.destroy(); }
+        });
+      });
+      request.write('--early\\r\\nContent-Disposition: form-data; name="file"; filename="oversized.txt"\\r\\n\\r\\n');
+      request.write("x".repeat(128));
+    });
+  } finally {
+    await app.close();
+  }
+  assert.deepEqual(await readdir(uploadDirectory), []);
 }
 {
   const isBun = process.argv[2] === "bun";
