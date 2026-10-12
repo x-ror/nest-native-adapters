@@ -127,7 +127,7 @@ import { get as httpsGet } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
-  Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Render, Req, Res,
+  Injectable, MaxFileSizeValidator, Module, Options, Param, ParseFilePipe, Post, Redirect, Render, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UploadedFiles, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   VERSION_NEUTRAL, Version, VersioningType,
@@ -1793,6 +1793,88 @@ class FormModule {}
       assert.deepEqual(await post("nested", body), {
         status: 201, body: { items: [{ name: "item-" + id, quantity: id + 1 }], tags: ["parallel"] },
       });
+    }));
+  } finally {
+    await app.close();
+  }
+}
+let corsHandlers = 0;
+const corsOrigins: (string | undefined)[] = [];
+@Controller("cors")
+class CorsController {
+  @Get()
+  get() { corsHandlers++; return { ok: true }; }
+  @Options()
+  @HttpCode(200)
+  options() { corsHandlers++; return { preflight: true }; }
+}
+@Module({ controllers: [CorsController] })
+class CorsModule {}
+for (const preflightContinue of [false, true]) {
+  const app = await NestFactory.create(CorsModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    app.enableCors({
+      origin: (
+        origin: string | undefined, callback: (error: Error | null, allowed?: boolean) => void,
+      ) => {
+        corsOrigins.push(origin);
+        setTimeout(() => {
+          if (origin === "https://error.test") callback(new ConflictException("origin rejected"));
+          else callback(null, origin === "https://allowed.test");
+        }, 5);
+      },
+      credentials: true, exposedHeaders: ["x-fixture"], methods: ["GET", "POST"],
+      maxAge: 60, optionsSuccessStatus: 200, preflightContinue,
+    });
+    await app.listen(0, "127.0.0.1");
+    const endpoint = (await app.getUrl()) + "/cors";
+    const allowed = await fetch(endpoint, { headers: { origin: "https://allowed.test" } });
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "https://allowed.test");
+    assert.equal(allowed.headers.get("access-control-allow-credentials"), "true");
+    assert.equal(allowed.headers.get("access-control-expose-headers"), "x-fixture");
+    assert.match(allowed.headers.get("vary") ?? "", /Origin/);
+    await allowed.arrayBuffer();
+    for (const origin of [undefined, "https://denied.test"]) {
+      const headers: Record<string, string> = origin ? { origin } : {};
+      const denied = await fetch(endpoint, { headers });
+      assert.equal(denied.status, 200, "CORS denial must not act as server-side authorization");
+      assert.equal(denied.headers.get("access-control-allow-origin"), null);
+      assert.deepEqual(await denied.json(), { ok: true });
+    }
+    assert.ok(corsOrigins.includes(undefined), "Origin callback must also run without Origin");
+    const before = corsHandlers;
+    const error = await fetch(endpoint, { headers: { origin: "https://error.test" } });
+    assert.equal(error.status, 409);
+    assert.equal((await error.json()).message, "origin rejected");
+    assert.equal(corsHandlers, before);
+    const preflight = await fetch(endpoint, {
+      method: "OPTIONS", headers: {
+        origin: "https://allowed.test", "access-control-request-method": "POST",
+        "access-control-request-headers": "x-token,x-request-id",
+      },
+    });
+    assert.equal(preflight.status, 200);
+    assert.equal(preflight.headers.get("access-control-allow-methods"), "GET,POST");
+    assert.equal(preflight.headers.get("access-control-allow-headers"), "x-token,x-request-id");
+    assert.equal(preflight.headers.get("access-control-max-age"), "60");
+    assert.match(preflight.headers.get("vary") ?? "", /Access-Control-Request-Headers/);
+    if (preflightContinue) {
+      assert.deepEqual(await preflight.json(), { preflight: true });
+      assert.equal(corsHandlers, before + 1);
+    } else {
+      assert.equal(await preflight.text(), "");
+      assert.equal(preflight.headers.get("content-length"), "0");
+      assert.equal(corsHandlers, before);
+    }
+    await Promise.all(Array.from({ length: 12 }, async (_, id) => {
+      const origin = id % 2 ? "https://allowed.test" : "https://denied.test";
+      const response = await fetch(endpoint, { headers: { origin } });
+      assert.equal(response.headers.get("access-control-allow-origin"),
+        id % 2 ? origin : null);
+      assert.deepEqual(await response.json(), { ok: true });
     }));
   } finally {
     await app.close();

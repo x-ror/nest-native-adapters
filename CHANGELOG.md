@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed dynamic CORS coverage on Nest 10/11/12 and Node/Bun: asynchronous
+  origin callbacks, credentials, preflight continuation, errors and
+  concurrent allowed/denied origins.
 - Packed nested URL-encoded form coverage on Nest 10/11/12 and Node/Bun:
   DTO transformation/validation, arrays, Unicode, invalid paths, byte limits,
   parser-error recovery and concurrent requests.

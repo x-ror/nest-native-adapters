@@ -440,6 +440,12 @@ contents or guarantee their safety.
 
 ## CORS
 
+Packed consumers cover asynchronous origin callbacks, credentials, reflected
+preflight headers, `preflightContinue`, callback errors and concurrent
+allowed/denied origins on Nest 10/11/12 and Node/Bun. Returning `false` from
+the origin callback suppresses CORS headers but does not block the controller:
+CORS is a browser policy, not server-side authorization.
+
 Browser cross-origin access is off until you call `app.enableCors()`, as on
 Express. `app.enableCors(options)` and `NestFactory.create(..., { cors })` take
 Nest's `CorsOptions` or a `CorsOptionsDelegate` and behave like the `cors`
