@@ -195,7 +195,7 @@ export abstract class NativeHttpAdapter<TServer> extends AbstractHttpAdapter<
       "unlock",
     ]) {
       instance[method] = (path: string, callback: Handler) => {
-        this.router.route(method.toUpperCase(), path, callback);
+        this.router.route(method.toUpperCase(), this.normalizePath(path), callback);
       };
     }
     this.trust = compileTrust(options.trustProxy);

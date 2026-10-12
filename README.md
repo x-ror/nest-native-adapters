@@ -236,6 +236,16 @@ on the same path. Use unprefixed paths in both configurations. For example,
 excluding GET `health` from the global prefix serves GET `/health`, while POST
 remains at `/api/health`.
 
+With URI versioning, excluding a route removes only the global prefix, not
+its version segment: excluding GET `prefix/item/:id` serves
+`/v1/prefix/item/42`, while POST remains at `/api/v1/prefix/item/42`.
+An excluded `VERSION_NEUTRAL` route has neither prefix nor version segment.
+Controller middleware still runs on excluded routes. Packed consumers cover
+parameterized and wildcard exclusions, multiple versions, `prefix: false`,
+`@All()` HTTP methods and concurrent requests on Nest 10/11/12 and Node/Bun.
+Legacy controller wildcards such as `open/*` are normalized by the adapters
+even when older Nest cores do not call `normalizePath()` during registration.
+
 ## Responses
 
 Use `@Res({ passthrough: true })` when setting headers, cookies or a status

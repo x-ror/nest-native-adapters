@@ -126,7 +126,7 @@ import { request as httpRequest } from "node:http";
 import { get as httpsGet } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  BadRequestException, Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, HttpException, Inject,
+  All, BadRequestException, Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, HttpException, Inject,
   Injectable, MaxFileSizeValidator, Module, Options, Param, ParseFilePipe, Post, Redirect, Render, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UploadedFiles, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
@@ -1016,6 +1016,78 @@ try {
   await accessApp.close();
 }
 const versionVisits: string[] = [];
+@Controller({ path: "prefix", version: ["1", "2"] })
+class PrefixController {
+  @Get("item/:id")
+  get(@Param("id") id: string) { return { id, method: "GET" }; }
+  @Post("item/:id")
+  post(@Param("id") id: string) { return { id, method: "POST" }; }
+  @All("open/*")
+  open(@Req() request: NativeRequest) { return { method: request.method }; }
+  @Get("neutral")
+  @Version(VERSION_NEUTRAL)
+  neutral() { return { neutral: true }; }
+}
+@Module({ controllers: [PrefixController] })
+class PrefixModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply((_request: NativeRequest, response: NativeResponse, next: () => void) => {
+      response.setHeader("x-prefix-middleware", "present");
+      next();
+    }).forRoutes(PrefixController);
+  }
+}
+for (const versionPrefix of ["v", false] as const) {
+  const app = await NestFactory.create(PrefixModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    app.setGlobalPrefix("api", { exclude: [
+      { path: "prefix/item/:id", method: RequestMethod.GET },
+      "prefix/open/(.*)",
+      { path: "prefix/neutral", method: RequestMethod.GET },
+    ] });
+    app.enableVersioning({ type: VersioningType.URI, prefix: versionPrefix });
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const verify = async (path: string, method: string, expected?: object) => {
+      const response = await fetch(base + path, { method });
+      assert.equal(response.status, expected ? method === "POST" && path.includes("/item/") ? 201 : 200 : 404,
+        "Global prefix/version exclusion: " + method + " " + path);
+      if (expected) {
+        assert.equal(response.headers.get("x-prefix-middleware"), "present");
+        if (method === "HEAD") assert.equal(await response.text(), "");
+        else assert.deepEqual(await response.json(), expected);
+      } else await response.text();
+    };
+    for (const version of ["1", "2"]) {
+      const segment = versionPrefix === false ? version : "v" + version;
+      await verify("/" + segment + "/prefix/item/42?query=yes", "GET", { id: "42", method: "GET" });
+      await verify("/api/" + segment + "/prefix/item/42", "POST", { id: "42", method: "POST" });
+      for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
+        await verify("/" + segment + "/prefix/open/a/b", method, { method });
+      }
+      await verify("/api/" + segment + "/prefix/item/42", "GET");
+      await verify("/" + segment + "/prefix/item/42", "POST");
+      await verify("/api/" + segment + "/prefix/open/a/b", "GET");
+      await verify("/" + segment + "/prefix/neutral", "GET");
+    }
+    await verify("/prefix/neutral", "GET", { neutral: true });
+    for (const path of [
+      "/api/prefix/neutral", "/prefix/item/42", "/prefix/open/a/b",
+      "/v3/prefix/item/42", "/api/v1/prefix/item/42/extra",
+    ]) await verify(path, "GET");
+    await Promise.all(Array.from({ length: 12 }, (_, id) => {
+      const version = id % 2 ? "1" : "2";
+      const segment = versionPrefix === false ? version : "v" + version;
+      const method = id % 3 ? "GET" : "POST";
+      return verify((method === "POST" ? "/api/" : "/") + segment + "/prefix/item/" + id,
+        method, { id: String(id), method });
+    }));
+  } finally {
+    await app.close();
+  }
+}
 @Controller({ path: "catalog", version: "1" })
 class CatalogController {
   @Get(":id")

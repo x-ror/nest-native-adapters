@@ -313,6 +313,20 @@ describe("native Nest adapters", () => {
     expect(await result.text()).toBe("<p>hello</p>");
   });
 
+  it("normalizes legacy wildcards when routes are registered directly by older Nest cores", async () => {
+    const adapter = new NodeHttpAdapter();
+    adapter.all("/legacy/*", (_request: NativeRequest, response: NativeResponse) => {
+      response.json({ matched: true });
+    });
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
+      const response = await adapter.fetch(new Request("http://localhost/legacy/a/b", { method }));
+      expect(response.status).toBe(200);
+      if (method === "HEAD") expect(await response.text()).toBe("");
+      else expect(await response.json()).toEqual({ matched: true });
+    }
+    expect((await adapter.fetch(new Request("http://localhost/legacy-other/a"))).status).toBe(404);
+  });
+
   it("matches real Nest on Express for supported behavior", async () => {
     await compareAdapters(
       () => new NodeHttpAdapter(),

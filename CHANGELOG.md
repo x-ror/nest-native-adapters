@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed global-prefix exclusion coverage with URI versioning on Nest 10/11/12
+  and Node/Bun: method-specific and wildcard exclusions, neutral routes,
+  controller middleware, `@All()` methods and concurrent requests.
 - Packed `StreamableFile` coverage on Nest 10/11/12 and Node/Bun: buffer/stream
   metadata, explicit headers, HEAD source cleanup, client disconnection,
   transmission errors, recovery and concurrent downloads.
@@ -55,6 +58,9 @@ version and one changelog. The format follows
 
 ### Fixed
 
+- Legacy controller wildcard routes are normalized during HTTP route registration,
+  preventing startup failures on older Nest cores that do not call the adapter's
+  `normalizePath()`.
 - `StreamableFile` no longer overwrites explicitly configured
   `Content-Disposition` and `Content-Length` response headers, matching Nest's
   Express adapter.
