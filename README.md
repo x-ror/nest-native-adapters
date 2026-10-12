@@ -593,6 +593,11 @@ app.useWebSocketAdapter(new BunWsAdapter(app));
 ports and namespaces are not supported, and `@ConnectedSocket()` is Bun's
 `ServerWebSocket`.
 
+Packed consumers verify both integrations across Nest 10/11/12: concurrent
+WebSocket clients receive isolated replies, malformed and unknown events do
+not prevent later valid messages, and ordinary HTTP routes remain available
+on the shared port.
+
 ### Socket.IO
 
 With `NodeHttpAdapter` nothing is needed beyond installing

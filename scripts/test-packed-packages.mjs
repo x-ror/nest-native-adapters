@@ -39,16 +39,20 @@ try {
       dependencies: {
         "@nestjs/common": common,
         "@nestjs/core": core,
+        "@nestjs/platform-ws": core,
+        "@nestjs/websockets": core,
         "nestjs-adapter-node": `file:${join(tarballs, nodeArchive)}`,
         "nestjs-adapter-bun": `file:${join(tarballs, bunArchive)}`,
         "reflect-metadata": common.startsWith("10.") ? "0.1.13" : "0.2.2",
         rxjs: "7.8.2",
+        ws: "8.18.0",
         "class-validator": "0.15.1",
         "class-transformer": "0.5.1",
       },
       devDependencies: {
         "@types/bun": "1.4.2",
         "@types/node": "26.6.4",
+        "@types/ws": "8.5.14",
         typescript: "7.0.2",
       },
     };
@@ -80,6 +84,7 @@ try {
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { WebSocket } from "ws";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
@@ -98,12 +103,30 @@ import { map } from "rxjs/operators";
 import { Exclude, Type } from "class-transformer";
 import { IsInt, Min } from "class-validator";
 import { NestFactory, REQUEST } from "@nestjs/core";
+import { WsAdapter } from "@nestjs/platform-ws";
+import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import { NodeHttpAdapter, FileInterceptor as NodeFileInterceptor } from "nestjs-adapter-node";
 import type { DiskUploadedFileData, NativeAdapterOptions, NativeRequest, NativeResponse } from "nestjs-adapter-node";
-import { BunHttpAdapter, FileInterceptor as BunFileInterceptor } from "nestjs-adapter-bun";
+import {
+  BunHttpAdapter, BunWsAdapter, FileInterceptor as BunFileInterceptor,
+} from "nestjs-adapter-bun";
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
+@WebSocketGateway({ path: "/ws" })
+class EchoGateway {
+  @SubscribeMessage("echo")
+  echo(@MessageBody() data: unknown) {
+    return { event: "echo", data };
+  }
+}
+@Controller()
+class GatewayHttpController {
+  @Get("health")
+  health() { return { ok: true }; }
+}
+@Module({ controllers: [GatewayHttpController], providers: [EchoGateway] })
+class GatewayModule {}
 const finished: string[] = [];
 const uploadState = { guards: 0, handlers: 0, paths: [] as string[] };
 @Injectable()
@@ -1093,6 +1116,56 @@ for (const trustProxy of [false, true]) {
       const tenant = \`tenant-\${index}\`;
       assert.deepEqual(await query(\`\${tenant}.example.test\`), { site: "tenant", tenant, id: "42" });
     }));
+  } finally {
+    await app.close();
+  }
+}
+{
+  const isBun = process.argv[2] === "bun";
+  const adapter = isBun ? new BunHttpAdapter() : new NodeHttpAdapter();
+  const app = await NestFactory.create(GatewayModule, adapter, { logger: false });
+  if (isBun) app.useWebSocketAdapter(new BunWsAdapter(app));
+  else app.useWebSocketAdapter(new WsAdapter(app));
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const endpoint = base.replace(/^http/, "ws") + "/ws";
+    const exchange = (id: number) => new Promise<unknown>((resolve, reject) => {
+      const socket = new WebSocket(endpoint);
+      let reply: unknown;
+      const timer = setTimeout(() => {
+        socket.terminate();
+        reject(new Error(\`WebSocket echo timed out for client \${id}\`));
+      }, 5000);
+      socket.on("open", () => {
+        socket.send("not json");
+        socket.send(JSON.stringify({ event: "unknown", data: { id } }));
+        socket.send(JSON.stringify({ event: "echo", data: { id } }));
+      });
+      socket.on("message", (data) => {
+        try {
+          reply = JSON.parse(data.toString());
+          socket.close();
+        } catch (error) {
+          clearTimeout(timer);
+          socket.terminate();
+          reject(error);
+        }
+      });
+      socket.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      socket.on("close", () => {
+        clearTimeout(timer);
+        if (reply === undefined) reject(new Error(\`WebSocket closed before echo for client \${id}\`));
+        else resolve(reply);
+      });
+    });
+    assert.deepEqual(await Promise.all(
+      Array.from({ length: 8 }, (_, id) => exchange(id)),
+    ), Array.from({ length: 8 }, (_, id) => ({ event: "echo", data: { id } })));
+    assert.deepEqual(await (await fetch(\`\${base}/health\`)).json(), { ok: true });
   } finally {
     await app.close();
   }

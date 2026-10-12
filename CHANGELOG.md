@@ -8,6 +8,10 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed Nest WebSocket gateway coverage on Nest 10/11/12 for Node's
+  `WsAdapter` and Bun's `BunWsAdapter`: concurrent clients, malformed and
+  unknown messages, and HTTP routing on the shared port.
+
 - Packed host-routing coverage on Nest 10/11/12 and Node/Bun: exact and
   parameterized hosts, host arrays, fallback controllers, proxy trust,
   global prefixes and concurrent tenant isolation. Real HTTP consumers also
