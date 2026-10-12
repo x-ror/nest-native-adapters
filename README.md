@@ -679,6 +679,16 @@ With the `1m` proxy limit, configure the adapter with
 
 ## WebSockets
 
+Packed consumers cover separate gateway paths, `handleConnection()` and
+`handleDisconnect()` exactly once per client, and gateway-managed shutdown
+with active clients across Nest 10/11/12 on Node/Bun.
+
+For portable shutdown with legacy Nest `WsAdapter`, track connected clients
+and call their `close()` in the gateway's `beforeApplicationShutdown()` hook.
+Older `WsAdapter` versions can otherwise wait indefinitely for active
+clients. This WebSocket shutdown phase runs before HTTP adapter draining,
+so the adapter's `shutdownTimeout` does not bound it.
+
 All WebSocket integrations need `@nestjs/websockets` installed in the application.
 
 On Node the adapter's server is a Node `http.Server`, so Nest's own adapter

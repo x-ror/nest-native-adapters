@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed WebSocket lifecycle coverage on Nest 10/11/12 and Node/Bun:
+  separate gateway paths, connection/disconnection hooks and active-client
+  shutdown through application lifecycle hooks.
 - Packed manual parser coverage on Nest 10/11/12 and Node/Bun for
   `bodyParser: false`, unread native bodies, custom JSON/rawBody, text/raw
   parsers, limits, error recovery and concurrent requests.

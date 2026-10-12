@@ -2051,6 +2051,93 @@ class ManualParserModule {}
     await app.close();
   }
 }
+const gatewayLifecycle = {
+  opened: [0, 0], closed: [0, 0],
+  clients: [new Set<{ close(): void }>(), new Set<{ close(): void }>()],
+};
+@WebSocketGateway({ path: "/lifecycle/first" })
+class FirstLifecycleGateway {
+  handleConnection(client: { close(): void }) {
+    gatewayLifecycle.opened[0]!++;
+    gatewayLifecycle.clients[0]!.add(client);
+  }
+  handleDisconnect(client: { close(): void }) {
+    assert.ok(gatewayLifecycle.clients[0]!.delete(client), "Disconnect must happen exactly once");
+    gatewayLifecycle.closed[0]!++;
+  }
+  beforeApplicationShutdown() {
+    for (const client of gatewayLifecycle.clients[0]!) client.close();
+  }
+  @SubscribeMessage("identity")
+  identity(@MessageBody() data: unknown) { return { event: "identity", data: { gateway: "first", value: data } }; }
+}
+@WebSocketGateway({ path: "/lifecycle/second" })
+class SecondLifecycleGateway {
+  handleConnection(client: { close(): void }) {
+    gatewayLifecycle.opened[1]!++;
+    gatewayLifecycle.clients[1]!.add(client);
+  }
+  handleDisconnect(client: { close(): void }) {
+    assert.ok(gatewayLifecycle.clients[1]!.delete(client), "Disconnect must happen exactly once");
+    gatewayLifecycle.closed[1]!++;
+  }
+  beforeApplicationShutdown() {
+    for (const client of gatewayLifecycle.clients[1]!) client.close();
+  }
+  @SubscribeMessage("identity")
+  identity(@MessageBody() data: unknown) { return { event: "identity", data: { gateway: "second", value: data } }; }
+}
+@Module({
+  controllers: [GatewayHttpController],
+  providers: [FirstLifecycleGateway, SecondLifecycleGateway],
+})
+class GatewayLifecycleModule {}
+{
+  const isBun = process.argv[2] === "bun";
+  const app = await NestFactory.create(GatewayLifecycleModule,
+    isBun ? new BunHttpAdapter() : new NodeHttpAdapter(), { logger: false });
+  app.useWebSocketAdapter(isBun ? new BunWsAdapter(app) : new WsAdapter(app));
+  const sockets: WebSocket[] = [];
+  const deadline = async (condition: () => boolean) => {
+    const end = Date.now() + 3000;
+    while (!condition() && Date.now() < end) await delay(10);
+    assert.ok(condition(), "Gateway lifecycle event timed out");
+  };
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    for (const gateway of ["first", "second"]) {
+      for (let value = 0; value < 2; value++) {
+        const socket = new WebSocket(base.replace(/^http/, "ws") + "/lifecycle/" + gateway);
+        sockets.push(socket);
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Gateway identity timed out")), 3000);
+          socket.once("error", (error) => { clearTimeout(timer); reject(error); });
+          socket.once("open", () => socket.send(JSON.stringify({ event: "identity", data: value })));
+          socket.once("message", (data) => {
+            clearTimeout(timer);
+            try {
+              assert.deepEqual(JSON.parse(data.toString()), { event: "identity", data: { gateway, value } });
+              resolve();
+            } catch (error) { reject(error); }
+          });
+        });
+      }
+    }
+    assert.deepEqual(gatewayLifecycle.opened, [2, 2]);
+    sockets[0]!.close();
+    await deadline(() => gatewayLifecycle.closed[0] === 1);
+    assert.deepEqual(gatewayLifecycle.closed, [1, 0]);
+    assert.equal((await fetch(base + "/health")).status, 200);
+    await app.close();
+    await deadline(() => sockets.every((socket) => socket.readyState === WebSocket.CLOSED));
+    await deadline(() => gatewayLifecycle.closed[0] === 2 && gatewayLifecycle.closed[1] === 2);
+    assert.deepEqual(gatewayLifecycle.clients.map((clients) => clients.size), [0, 0]);
+  } finally {
+    for (const socket of sockets) if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+    await app.close();
+  }
+}
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
     );
