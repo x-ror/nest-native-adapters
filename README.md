@@ -328,7 +328,29 @@ const app = await NestFactory.create(AppModule, new NodeHttpAdapter({ bodyLimit:
 The same option works with `BunHttpAdapter`. For a custom JSON content type,
 register `app.useBodyParser("json", { type: "application/vnd.example+json" })`.
 Nest forwards the application's `rawBody` option to the parser. Binary payloads
-require `app.useBodyParser("raw")`. Keep body parsing enabled for these parsers.
+require `app.useBodyParser("raw")`.
+
+`bodyParser: false` disables automatic parser registration, not explicitly
+registered parsers. Without a matching parser, `request.body` stays undefined
+and `request.raw` remains readable. For manual registration across Nest
+10/11/12, use the adapter directly:
+
+```ts
+const adapter = new NodeHttpAdapter();
+const app = await NestFactory.create(AppModule, adapter, {
+  bodyParser: false,
+});
+adapter.useBodyParser("json", true, {
+  type: "application/vnd.webhook+json",
+  limit: 1024 * 1024,
+});
+```
+
+The second adapter argument enables `rawBody` for that parser. Unlike Nest's
+application-level `app.useBodyParser()` facade, it takes this boolean
+explicitly. Register parsers before initializing or listening. Packed
+consumers cover this mode with JSON, text and binary parsers, limits, errors
+and concurrent requests on Node/Bun.
 
 ### Uploads
 

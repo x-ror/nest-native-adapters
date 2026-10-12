@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed manual parser coverage on Nest 10/11/12 and Node/Bun for
+  `bodyParser: false`, unread native bodies, custom JSON/rawBody, text/raw
+  parsers, limits, error recovery and concurrent requests.
 - Packed DI-backed global enhancer coverage on Nest 10/11/12 and Node/Bun:
   `APP_*` registration via `useExisting`, parameter transformation, pipeline
   errors, `HttpAdapterHost` filters and concurrent requests.

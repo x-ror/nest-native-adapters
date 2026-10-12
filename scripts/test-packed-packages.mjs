@@ -1985,6 +1985,72 @@ class EnhancedModule {}
     await app.close();
   }
 }
+let manualParserHandlers = 0;
+@Controller("manual-parser")
+class ManualParserController {
+  @Post()
+  async inspect(@Req() request: NativeRequest) {
+    manualParserHandlers++;
+    const unparsed = request.body === undefined;
+    return {
+      body: unparsed ? null : Buffer.isBuffer(request.body)
+        ? { hex: request.body.toString("hex") } : request.body,
+      raw: request.rawBody?.toString("hex") ?? null,
+      unread: unparsed ? await request.raw.text() : null,
+    };
+  }
+}
+@Module({ controllers: [ManualParserController] })
+class ManualParserModule {}
+{
+  const adapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+  const app = await NestFactory.create(ManualParserModule, adapter, {
+    logger: false, bodyParser: false,
+  });
+  try {
+    adapter.useBodyParser("json", true, { type: "application/vnd.manual+json", limit: 32 });
+    adapter.useBodyParser("text", false, { type: "text/*", limit: 16 });
+    adapter.useBodyParser("raw", true, { limit: 16 });
+    await app.listen(0, "127.0.0.1");
+    const endpoint = (await app.getUrl()) + "/manual-parser";
+    const post = async (type: string, body: string) => {
+      const response = await fetch(endpoint, {
+        method: "POST", headers: { "content-type": type }, body,
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const json = '{ "value": 7 }';
+    assert.deepEqual(await post("application/json", json), {
+      status: 201, body: { body: null, raw: null, unread: json },
+    }, "bodyParser:false must leave the standard JSON stream unread");
+    assert.deepEqual(await post("application/vnd.manual+json", json), {
+      status: 201, body: { body: { value: 7 }, raw: Buffer.from(json).toString("hex"), unread: null },
+    });
+    assert.deepEqual(await post("text/csv", "one,two"), {
+      status: 201, body: { body: "one,two", raw: null, unread: null },
+    });
+    assert.deepEqual(await post("application/octet-stream", "binary"), {
+      status: 201, body: {
+        body: { hex: Buffer.from("binary").toString("hex") },
+        raw: Buffer.from("binary").toString("hex"), unread: null,
+      },
+    });
+    const before = manualParserHandlers;
+    assert.equal((await post("application/vnd.manual+json", "{invalid")).status, 400);
+    assert.equal((await post("text/plain", "x".repeat(17))).status, 413);
+    assert.equal((await post("application/octet-stream", "x".repeat(17))).status, 413);
+    assert.equal(manualParserHandlers, before);
+    assert.equal((await post("text/plain", "x".repeat(16))).status, 201);
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      const body = JSON.stringify({ value: id });
+      assert.deepEqual(await post("application/vnd.manual+json", body), {
+        status: 201, body: { body: { value: id }, raw: Buffer.from(body).toString("hex"), unread: null },
+      });
+    }));
+  } finally {
+    await app.close();
+  }
+}
 console.log(\`packed package smoke passed on \${process.argv[2]} / Nest ${core}\`);
 `,
     );
