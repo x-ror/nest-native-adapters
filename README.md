@@ -248,6 +248,14 @@ does not apply to data the handler sends.
 Status, headers, cookies, redirects, HEAD and no-content responses and
 `StreamableFile` work as they do on Nest's Express adapter.
 
+`StreamableFile` supplies content type, disposition and length only when those
+headers have not already been set on the response. Buffers carry their length;
+streams without a configured length are sent without `Content-Length`.
+HEAD closes the source without reading it, and client disconnection destroys
+an active source. A source error during transmission fails the download rather
+than completing a truncated file; headers already sent cannot be replaced by
+a Nest JSON error response.
+
 `@Render()` works with Express-compatible view engines. Call
 `app.setBaseViewsDir(dir)` (default `./views`) and `app.setViewEngine("ejs")`,
 or pass `{ extension, render }` with any `(path, options, callback)` function.

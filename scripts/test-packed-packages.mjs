@@ -2173,6 +2173,108 @@ class ScopedGlobalModule {}
     await app.close();
   }
 }
+const downloadState = { closed: 0, reads: 0 };
+@Controller("download")
+class DownloadController {
+  @Get("buffer")
+  buffer() {
+    return new StreamableFile(Buffer.from("fixture"), {
+      type: "text/plain", disposition: 'attachment; filename="fixture.txt"',
+    });
+  }
+  @Get("override")
+  override(@Res({ passthrough: true }) response: NativeResponse) {
+    response.setHeader("Content-Type", "text/custom");
+    response.setHeader("Content-Disposition", 'inline; filename="custom.txt"');
+    response.setHeader("Content-Length", "7");
+    return new StreamableFile(Buffer.from("fixture"), {
+      type: "application/octet-stream", disposition: 'attachment; filename="default.bin"',
+      length: 99,
+    });
+  }
+  @Get("slow")
+  slow() {
+    const source = new Readable({
+      read() {
+        downloadState.reads++;
+        if (downloadState.reads === 1) this.push("first");
+      },
+    });
+    source.once("close", () => { downloadState.closed++; });
+    return new StreamableFile(source, { type: "text/plain" });
+  }
+  @Get("chunks")
+  chunks() {
+    return new StreamableFile(Readable.from((async function* () {
+      yield Buffer.from("first");
+      await delay(5);
+      yield Buffer.from("second");
+      await delay(5);
+      yield Buffer.from("last");
+    })()), { type: "text/plain" });
+  }
+  @Get("error")
+  error() {
+    return new StreamableFile(Readable.from((async function* () {
+      yield "first";
+      await delay(20);
+      throw new Error("Fixture download failed");
+    })()));
+  }
+}
+@Module({ controllers: [DownloadController] })
+class DownloadModule {}
+{
+  const app = await NestFactory.create(DownloadModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = (await app.getUrl()) + "/download";
+    const verify = async (path: string, method = "GET") => {
+      const response = await fetch(base + "/" + path, { method });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), path === "override" ? "text/custom" : "text/plain");
+      assert.equal(response.headers.get("content-disposition"),
+        path === "override" ? 'inline; filename="custom.txt"' : 'attachment; filename="fixture.txt"');
+      assert.equal(response.headers.get("content-length"), "7");
+      assert.equal(await response.text(), method === "HEAD" ? "" : "fixture");
+    };
+    await verify("buffer");
+    await verify("override");
+    await verify("buffer", "HEAD");
+    await verify("override", "HEAD");
+    const chunks = await fetch(base + "/chunks");
+    assert.equal(chunks.status, 200);
+    assert.equal(chunks.headers.get("content-type"), "text/plain");
+    assert.equal(chunks.headers.get("content-length"), null);
+    assert.equal(await chunks.text(), "firstsecondlast");
+    const head = await fetch(base + "/slow", { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    await waitFor(() => downloadState.closed === 1, "HEAD must close an unread download source");
+    assert.equal(downloadState.reads, 0);
+    const controller = new AbortController();
+    const streamed = await fetch(base + "/slow", { signal: controller.signal });
+    const reader = streamed.body!.getReader();
+    const first = await reader.read();
+    assert.equal(new TextDecoder().decode(first.value), "first");
+    controller.abort();
+    await reader.cancel().catch((error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.name, "AbortError");
+    });
+    await waitFor(() => downloadState.closed === 2, "Disconnect must destroy the download source");
+    const broken = await fetch(base + "/error");
+    assert.equal(broken.status, 200);
+    await assert.rejects(() => broken.arrayBuffer(),
+      "A stream error must fail the download, not report a successful truncated file");
+    await verify("buffer");
+    await Promise.all(Array.from({ length: 8 }, () => verify("override")));
+  } finally {
+    await app.close();
+  }
+}
 let manualParserHandlers = 0;
 @Controller("manual-parser")
 class ManualParserController {

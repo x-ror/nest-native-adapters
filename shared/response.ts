@@ -281,8 +281,9 @@ export class NativeResponse {
     if (value instanceof StreamableFile) {
       const metadata = value.getHeaders();
       headers["content-type"] ??= metadata.type;
-      if (metadata.disposition) this.setHeader("content-disposition", metadata.disposition);
-      if (metadata.length !== undefined) headers["content-length"] = String(metadata.length);
+      if (metadata.disposition && headers["content-disposition"] === undefined)
+        this.setHeader("content-disposition", metadata.disposition);
+      if (metadata.length !== undefined) headers["content-length"] ??= String(metadata.length);
       return this.finish(value.getStream());
     }
     // A Blob (e.g. from fs.openAsBlob) keeps its size, so Bun can send Content-Length.

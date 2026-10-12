@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed `StreamableFile` coverage on Nest 10/11/12 and Node/Bun: buffer/stream
+  metadata, explicit headers, HEAD source cleanup, client disconnection,
+  transmission errors, recovery and concurrent downloads.
 - Packed request-scoped global enhancer coverage on Nest 10/11/12 and Node/Bun:
   explicit `APP_*` scopes, shared `REQUEST` injection, parameter pipes, scope
   bubbling, concurrent request isolation and guard/pipe/handler error recovery.
@@ -52,6 +55,9 @@ version and one changelog. The format follows
 
 ### Fixed
 
+- `StreamableFile` no longer overwrites explicitly configured
+  `Content-Disposition` and `Content-Length` response headers, matching Nest's
+  Express adapter.
 - Client disconnection cancels streaming multipart uploads and cleans temporary
   files even while an asynchronous `fileFilter` decision is pending. Late
   callbacks cannot resume storage after cancellation. Packed consumers cover
