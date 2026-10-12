@@ -126,21 +126,23 @@ import { request as httpRequest } from "node:http";
 import { get as httpsGet } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
+  BadRequestException, Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, HttpException, Inject,
   Injectable, MaxFileSizeValidator, Module, Options, Param, ParseFilePipe, Post, Redirect, Render, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UploadedFiles, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   VERSION_NEUTRAL, Version, VersioningType,
   type ArgumentsHost, type CallHandler, type CanActivate, type ExceptionFilter, type ExecutionContext,
   type MessageEvent, type MiddlewareConsumer, type NestInterceptor, type NestMiddleware, type NestModule,
-  type VersioningOptions,
+  type VersioningOptions, type PipeTransform,
   type OnModuleDestroy, type BeforeApplicationShutdown, type OnApplicationShutdown,
 } from "@nestjs/common";
 import { Observable } from "rxjs";
 import { map } from "rxjs/operators";
 import { Exclude, Type } from "class-transformer";
 import { IsArray, IsInt, IsString, Min, ValidateNested } from "class-validator";
-import { NestFactory, REQUEST } from "@nestjs/core";
+import {
+  APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE, HttpAdapterHost, NestFactory, REQUEST,
+} from "@nestjs/core";
 import { WsAdapter } from "@nestjs/platform-ws";
 import { MessageBody, SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import {
@@ -1875,6 +1877,109 @@ for (const preflightContinue of [false, true]) {
       assert.equal(response.headers.get("access-control-allow-origin"),
         id % 2 ? origin : null);
       assert.deepEqual(await response.json(), { ok: true });
+    }));
+  } finally {
+    await app.close();
+  }
+}
+const enhancerTrace = new WeakMap<NativeRequest, string[]>();
+@Injectable()
+class EnhancerService {
+  normalize(value: string) {
+    if (!/^\\d+$/.test(value)) throw new BadRequestException("Invalid fixture number");
+    return Number(value);
+  }
+}
+@Injectable()
+class GlobalGuard implements CanActivate {
+  constructor(@Inject(EnhancerService) private readonly service: EnhancerService) {}
+  canActivate(context: ExecutionContext) {
+    assert.ok(this.service instanceof EnhancerService);
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    enhancerTrace.set(request, ["guard"]);
+    if (request.headers["x-auth"] !== "yes") throw new UnauthorizedException("Fixture denied");
+    return true;
+  }
+}
+@Injectable()
+class GlobalPipe implements PipeTransform {
+  constructor(@Inject(EnhancerService) private readonly service: EnhancerService) {}
+  transform(value: string) { return this.service.normalize(value); }
+}
+@Injectable()
+class GlobalInterceptor implements NestInterceptor {
+  constructor(@Inject(EnhancerService) private readonly service: EnhancerService) {}
+  intercept(context: ExecutionContext, next: CallHandler) {
+    assert.ok(this.service instanceof EnhancerService);
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    const trace = enhancerTrace.get(request)!;
+    trace.push("interceptor:before");
+    return next.handle().pipe(map((data: unknown) => {
+      trace.push("interceptor:after");
+      return { data, trace };
+    }));
+  }
+}
+@Catch(HttpException)
+class GlobalFilter implements ExceptionFilter<HttpException> {
+  constructor(@Inject(HttpAdapterHost) private readonly adapterHost: HttpAdapterHost) {}
+  catch(error: HttpException, context: ArgumentsHost) {
+    const http = context.switchToHttp();
+    const request = http.getRequest<NativeRequest>();
+    this.adapterHost.httpAdapter.reply(http.getResponse<NativeResponse>(), {
+      statusCode: error.getStatus(), message: error.message,
+      trace: [...(enhancerTrace.get(request) ?? []), "filter"],
+    }, error.getStatus());
+  }
+}
+@Controller("enhanced")
+class EnhancedController {
+  @Get(":value")
+  async get(@Param("value") value: number) {
+    await delay(5);
+    if (value === 13) throw new ConflictException("Fixture conflict");
+    return { value, type: typeof value };
+  }
+}
+@Module({
+  controllers: [EnhancedController],
+  providers: [
+    EnhancerService, GlobalGuard, GlobalPipe, GlobalInterceptor, GlobalFilter,
+    { provide: APP_GUARD, useExisting: GlobalGuard },
+    { provide: APP_PIPE, useExisting: GlobalPipe },
+    { provide: APP_INTERCEPTOR, useExisting: GlobalInterceptor },
+    { provide: APP_FILTER, useExisting: GlobalFilter },
+  ],
+})
+class EnhancedModule {}
+{
+  const app = await NestFactory.create(EnhancedModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const query = async (value: string, authenticated = true) => {
+      const response = await fetch(base + "/enhanced/" + value, {
+        headers: { "x-auth": authenticated ? "yes" : "no" },
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    assert.deepEqual(await query("7"), { status: 200, body: {
+      data: { value: 7, type: "number" }, trace: ["guard", "interceptor:before", "interceptor:after"],
+    } });
+    for (const [value, auth, status, message, trace] of [
+      ["7", false, 401, "Fixture denied", ["guard", "filter"]],
+      ["invalid", true, 400, "Invalid fixture number", ["guard", "interceptor:before", "filter"]],
+      ["13", true, 409, "Fixture conflict", ["guard", "interceptor:before", "filter"]],
+    ] as const) {
+      assert.deepEqual(await query(value, auth), { status, body: { statusCode: status, message, trace } });
+    }
+    await Promise.all(Array.from({ length: 12 }, async (_, id) => {
+      const value = id + 20;
+      assert.deepEqual(await query(String(value)), { status: 200, body: {
+        data: { value, type: "number" }, trace: ["guard", "interceptor:before", "interceptor:after"],
+      } });
     }));
   } finally {
     await app.close();

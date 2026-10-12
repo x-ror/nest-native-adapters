@@ -130,6 +130,13 @@ Nest 12 keeps using its built-in cookie serializer and application-level signer.
 
 ### Validation and request scope
 
+Global guards, pipes, interceptors and filters registered through Nest's
+`APP_GUARD`, `APP_PIPE`, `APP_INTERCEPTOR` and `APP_FILTER` tokens support DI,
+including `useExisting` providers. Packed consumers cover their execution
+order, parameter transformation, guard/pipe/handler errors and concurrent
+requests on Nest 10/11/12 and Node/Bun. A global exception filter can inject
+`HttpAdapterHost` and use `httpAdapter.reply()` without depending on Express.
+
 Use Nest's `ValidationPipe` with `class-validator` and `class-transformer`
 installed in the application. Compile DTO classes with
 `experimentalDecorators: true` and `emitDecoratorMetadata: true`, and load

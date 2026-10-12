@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed DI-backed global enhancer coverage on Nest 10/11/12 and Node/Bun:
+  `APP_*` registration via `useExisting`, parameter transformation, pipeline
+  errors, `HttpAdapterHost` filters and concurrent requests.
 - Packed dynamic CORS coverage on Nest 10/11/12 and Node/Bun: asynchronous
   origin callbacks, credentials, preflight continuation, errors and
   concurrent allowed/denied origins.
