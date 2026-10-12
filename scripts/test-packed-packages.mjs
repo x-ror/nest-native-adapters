@@ -2044,6 +2044,135 @@ class EnhancedModule {}
     await app.close();
   }
 }
+@Injectable()
+class ScopedGlobalGuard implements CanActivate {
+  constructor(private readonly identity: RequestIdentity) {}
+  canActivate(context: ExecutionContext) {
+    this.identity.record("guard", context.switchToHttp().getRequest<NativeRequest>());
+    if (this.identity.auth !== "yes") throw new UnauthorizedException("Scoped denied");
+    return true;
+  }
+}
+@Injectable()
+class ScopedGlobalPipe implements PipeTransform {
+  constructor(private readonly identity: RequestIdentity) {}
+  transform(value: string) {
+    this.identity.record("pipe", this.identity.request);
+    if (!/^\\d+$/.test(value)) throw new BadRequestException("Scoped invalid number");
+    return Number(value);
+  }
+}
+@Injectable()
+class ScopedGlobalInterceptor implements NestInterceptor {
+  constructor(private readonly identity: RequestIdentity) {}
+  intercept(context: ExecutionContext, next: CallHandler) {
+    const request = context.switchToHttp().getRequest<NativeRequest>();
+    this.identity.record("interceptor-before", request);
+    return next.handle().pipe(map((data: unknown) => {
+      this.identity.record("interceptor-after", request);
+      return { data, ...this.identity.result() };
+    }));
+  }
+}
+@Catch(HttpException)
+class ScopedGlobalFilter implements ExceptionFilter<HttpException> {
+  constructor(
+    private readonly identity: RequestIdentity,
+    @Inject(HttpAdapterHost) private readonly adapterHost: HttpAdapterHost,
+  ) {}
+  catch(error: HttpException, context: ArgumentsHost) {
+    const http = context.switchToHttp();
+    this.identity.record("filter", http.getRequest<NativeRequest>());
+    this.adapterHost.httpAdapter.reply(http.getResponse<NativeResponse>(), {
+      message: error.message, ...this.identity.result(),
+    }, error.getStatus());
+  }
+}
+const scopedGlobalState = { active: 0, maxActive: 0 };
+@Controller("scoped-global")
+class ScopedGlobalController {
+  constructor(private readonly identity: RequestIdentity) {}
+  @Get(":value")
+  async get(@Param("value") value: number) {
+    this.identity.record("controller", this.identity.request);
+    scopedGlobalState.active++;
+    scopedGlobalState.maxActive = Math.max(scopedGlobalState.maxActive, scopedGlobalState.active);
+    try {
+      await delay(10);
+      this.identity.record("controller-after-await", this.identity.request);
+      if (value === 13) throw new ConflictException("Scoped conflict");
+      return { value, type: typeof value };
+    } finally {
+      scopedGlobalState.active--;
+    }
+  }
+}
+@Module({
+  controllers: [ScopedGlobalController],
+  providers: [
+    RequestIdentity,
+    { provide: APP_GUARD, useClass: ScopedGlobalGuard, scope: Scope.REQUEST },
+    { provide: APP_PIPE, useClass: ScopedGlobalPipe, scope: Scope.REQUEST },
+    { provide: APP_INTERCEPTOR, useClass: ScopedGlobalInterceptor, scope: Scope.REQUEST },
+    { provide: APP_FILTER, useClass: ScopedGlobalFilter, scope: Scope.REQUEST },
+  ],
+})
+class ScopedGlobalModule {}
+{
+  const beforeCreated = scopedState.created;
+  const app = await NestFactory.create(ScopedGlobalModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const ids = new Set<number>();
+    const query = async (requestId: string, value: string, auth = "yes") => {
+      const response = await fetch(base + "/scoped-global/" + value, {
+        headers: { "x-request-id": requestId, "x-auth": auth },
+      });
+      const body = await response.json();
+      assert.equal(body.requestId, requestId);
+      assert.equal(body.auth, auth);
+      assert.equal(typeof body.instanceId, "number");
+      assert.ok(!ids.has(body.instanceId), "Global enhancers must not reuse another request's scope");
+      ids.add(body.instanceId);
+      const { instanceId: _instanceId, requestId: _requestId, auth: _auth, ...result } = body;
+      const successPhases = ["guard", "interceptor-before", "pipe", "controller", "controller-after-await"];
+      if (auth !== "yes") {
+        assert.equal(response.status, 401);
+        assert.deepEqual(result, { message: "Scoped denied", phases: ["guard", "filter"] });
+      } else if (value === "invalid") {
+        assert.equal(response.status, 400);
+        assert.deepEqual(result, {
+          message: "Scoped invalid number", phases: ["guard", "interceptor-before", "pipe", "filter"],
+        });
+      } else if (value === "13") {
+        assert.equal(response.status, 409);
+        assert.deepEqual(result, { message: "Scoped conflict", phases: [...successPhases, "filter"] });
+      } else {
+        assert.equal(response.status, 200);
+        assert.deepEqual(result, {
+          data: { value: Number(value), type: "number" },
+          phases: [...successPhases, "interceptor-after"],
+        });
+      }
+    };
+    await query("global-first", "7");
+    await query("global-second", "8");
+    await Promise.all(Array.from({ length: 16 }, (_, id) =>
+      query("global-parallel-" + id,
+        id % 4 === 1 ? "invalid" : id % 4 === 2 ? "13" : String(id + 20),
+        id % 4 === 3 ? "no" : "yes")));
+    await query("global-recovery", "9");
+    assert.ok(scopedGlobalState.maxActive > 1, "Scoped global handlers must actually overlap");
+    assert.equal(scopedGlobalState.active, 0);
+    assert.equal(scopedState.created - beforeCreated, 19,
+      "Global APP_* enhancers, parameter pipe and controller must share one instance per request");
+  } finally {
+    await app.close();
+  }
+}
 let manualParserHandlers = 0;
 @Controller("manual-parser")
 class ManualParserController {

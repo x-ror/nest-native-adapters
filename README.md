@@ -150,6 +150,20 @@ requests get separate instances. Nest's scope bubbling applies. A controller
 or provider that depends on a request-scoped provider becomes request-scoped
 without an explicit scope.
 
+For request-scoped global enhancers, declare `scope: Scope.REQUEST` on the
+`APP_*` provider itself:
+
+```ts
+{ provide: APP_GUARD, useClass: TenantGuard, scope: Scope.REQUEST }
+```
+
+The same registration applies to `APP_PIPE`, `APP_INTERCEPTOR` and `APP_FILTER`.
+Do not rely on `useExisting` to infer request scope for a global enhancer:
+Nest chooses global enhancer registration from the `APP_*` provider metadata.
+Packed consumers cover one shared `REQUEST` and scoped dependency across these
+enhancers and the controller, including parameter pipes, asynchronous handlers,
+guard/pipe/handler errors and concurrent requests on Nest 10/11/12 and Node/Bun.
+
 ### Swagger
 
 `@nestjs/swagger` works with both adapters:

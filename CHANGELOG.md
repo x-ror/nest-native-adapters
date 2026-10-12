@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed request-scoped global enhancer coverage on Nest 10/11/12 and Node/Bun:
+  explicit `APP_*` scopes, shared `REQUEST` injection, parameter pipes, scope
+  bubbling, concurrent request isolation and guard/pipe/handler error recovery.
 - Packed WebSocket lifecycle coverage on Nest 10/11/12 and Node/Bun:
   separate gateway paths, connection/disconnection hooks and active-client
   shutdown through application lifecycle hooks.
