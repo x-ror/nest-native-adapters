@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed static asset coverage across Nest 10/11/12 and Node/Bun for
+  caching, HEAD, ranges, preconditions, directory indexes, controller
+  fallthrough and concurrent requests.
 - Packed media-type and custom versioning coverage on Nest 10/11/12 and
   Node/Bun: multiple accepted versions, neutral fallback, strict-route 404s,
   registration-order matching and concurrent requests.

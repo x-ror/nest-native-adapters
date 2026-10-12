@@ -515,6 +515,11 @@ me(@Cookies("theme") theme: string, @SignedCookies("uid") uid?: string) {
 
 ## Static files
 
+Packed consumers cover static assets on Nest 10/11/12 and Node/Bun: cache
+validators, HEAD, partial and unsatisfiable ranges, stale `If-Range`,
+preconditions, directory redirects/indexes, hidden files, controller
+fallthrough and concurrent range requests.
+
 `app.useStaticAssets(root, options)` behaves like `express.static()`, which
 Nest's Express adapter uses:
 

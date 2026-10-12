@@ -55,7 +55,12 @@ try {
   ]) {
     const consumer = join(temporary, `consumer-${core}`);
     const uploadDirectory = join(consumer, "uploads");
+    const staticDirectory = join(consumer, "static");
     await mkdir(uploadDirectory, { recursive: true });
+    await mkdir(join(staticDirectory, "docs"), { recursive: true });
+    await writeFile(join(staticDirectory, "sample.txt"), "0123456789");
+    await writeFile(join(staticDirectory, ".hidden"), "hidden");
+    await writeFile(join(staticDirectory, "docs", "index.html"), "<h1>fixture</h1>");
     const manifest = {
       private: true,
       type: "module",
@@ -149,6 +154,7 @@ import {
 import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
+const staticDirectory = ${JSON.stringify(staticDirectory)};
 const tlsKeyPath = ${JSON.stringify(tlsKey)};
 const tlsCertPath = ${JSON.stringify(tlsCert)};
 @WebSocketGateway({ path: "/ws" })
@@ -1553,6 +1559,85 @@ for (const disk of [false, true]) {
       assert.equal(response.status, 200);
       assert.deepEqual(JSON.parse(response.body), { protocol: "https", secure: true });
     }
+  } finally {
+    await app.close();
+  }
+}
+@Controller("assets")
+class StaticFallbackController {
+  @Get("missing")
+  fallback() { return { fallback: true }; }
+}
+@Module({ controllers: [StaticFallbackController] })
+class StaticModule {}
+{
+  const adapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+  const app = await NestFactory.create(StaticModule, adapter, { logger: false });
+  try {
+    adapter.useStaticAssets(staticDirectory, {
+      prefix: "/assets", maxAge: 60_000,
+      setHeaders: (response) => { response.setHeader("x-static", "fixture"); },
+    });
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const get = (path: string, headers: Record<string, string> = {}) =>
+      fetch(base + path, { headers });
+    const full = await get("/assets/sample.txt");
+    assert.equal(full.status, 200);
+    assert.equal(await full.text(), "0123456789");
+    assert.equal(full.headers.get("cache-control"), "public, max-age=60");
+    assert.equal(full.headers.get("x-static"), "fixture");
+    assert.equal(full.headers.get("accept-ranges"), "bytes");
+    const etag = full.headers.get("etag");
+    const modified = full.headers.get("last-modified");
+    assert.ok(etag);
+    assert.ok(modified);
+    const validators: Record<string, string>[] = [
+      { "if-none-match": etag }, { "if-modified-since": modified },
+    ];
+    for (const headers of validators) {
+      const cached = await get("/assets/sample.txt", { "cache-control": "max-age=0", ...headers });
+      assert.equal(cached.status, 304);
+      assert.equal(await cached.text(), "");
+    }
+    const head = await fetch(base + "/assets/sample.txt", { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("content-length"), "10");
+    assert.equal(await head.text(), "");
+    for (const [range, expected, contentRange] of [
+      ["bytes=2-5", "2345", "bytes 2-5/10"],
+      ["bytes=-3", "789", "bytes 7-9/10"],
+    ]) {
+      const partial = await get("/assets/sample.txt", { range });
+      assert.equal(partial.status, 206);
+      assert.equal(partial.headers.get("content-range"), contentRange);
+      assert.equal(await partial.text(), expected);
+    }
+    const stale = await get("/assets/sample.txt", { range: "bytes=2-5", "if-range": '"stale"' });
+    assert.equal(stale.status, 200);
+    assert.equal(await stale.text(), "0123456789");
+    const impossible = await get("/assets/sample.txt", { range: "bytes=20-" });
+    assert.equal(impossible.status, 416);
+    await impossible.arrayBuffer();
+    const precondition = await get("/assets/sample.txt", { "if-match": '"stale"' });
+    assert.equal(precondition.status, 412);
+    await precondition.arrayBuffer();
+    const redirect = await fetch(base + "/assets/docs?fixture=1", { redirect: "manual" });
+    assert.equal(redirect.status, 301);
+    assert.equal(redirect.headers.get("location"), "/assets/docs/?fixture=1");
+    await redirect.arrayBuffer();
+    assert.equal(await (await get("/assets/docs/")).text(), "<h1>fixture</h1>");
+    assert.deepEqual(await (await get("/assets/missing")).json(), { fallback: true });
+    for (const path of ["/assets/.hidden", "/assetsmissing", "/assets/not-found.txt"]) {
+      const response = await get(path);
+      assert.equal(response.status, 404);
+      await response.arrayBuffer();
+    }
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      const response = await get("/assets/sample.txt", { range: \`bytes=\${id}-\${id}\` });
+      assert.equal(response.status, 206);
+      assert.equal(await response.text(), String(id));
+    }));
   } finally {
     await app.close();
   }
