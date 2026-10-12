@@ -231,6 +231,13 @@ Status, headers, cookies, redirects, HEAD and no-content responses and
 `app.setBaseViewsDir(dir)` (default `./views`) and `app.setViewEngine("ejs")`,
 or pass `{ extension, render }` with any `(path, options, callback)` function.
 Express `app.locals` and view caching settings are not available.
+Install the engine in the application: it is resolved from the configured
+view directories or application working directory, not bundled with the
+adapter. `setBaseViewsDir()` also accepts an ordered array of directories.
+Packed consumers cover real EJS escaping, asynchronous custom engines,
+explicit template extensions, HEAD, concurrent template data and errors on
+Nest 10/11/12 and Node/Bun. Missing templates and engine errors go through
+Nest's exception handling.
 
 ### Response events and server handles
 

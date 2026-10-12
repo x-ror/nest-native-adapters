@@ -56,11 +56,15 @@ try {
     const consumer = join(temporary, `consumer-${core}`);
     const uploadDirectory = join(consumer, "uploads");
     const staticDirectory = join(consumer, "static");
+    const viewsDirectory = join(consumer, "views");
     await mkdir(uploadDirectory, { recursive: true });
     await mkdir(join(staticDirectory, "docs"), { recursive: true });
     await writeFile(join(staticDirectory, "sample.txt"), "0123456789");
     await writeFile(join(staticDirectory, ".hidden"), "hidden");
     await writeFile(join(staticDirectory, "docs", "index.html"), "<h1>fixture</h1>");
+    await mkdir(viewsDirectory);
+    await writeFile(join(viewsDirectory, "hello.ejs"), "<h1>Hello <%= name %></h1>");
+    await writeFile(join(viewsDirectory, "broken.ejs"), "<%= missingVariable %>");
     const manifest = {
       private: true,
       type: "module",
@@ -78,6 +82,7 @@ try {
         "class-validator": "0.15.1",
         "class-transformer": "0.5.1",
         "socket.io-client": "4.8.4",
+        ejs: "3.1.10",
       },
       devDependencies: {
         "@types/bun": "1.4.2",
@@ -122,7 +127,7 @@ import { get as httpsGet } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   Body, Catch, ClassSerializerInterceptor, ConflictException, Controller, Get, HostParam, HttpCode, Inject,
-  Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Req, Res,
+  Injectable, MaxFileSizeValidator, Module, Param, ParseFilePipe, Post, Redirect, Render, Req, Res,
   RequestMethod, Scope, Sse, StreamableFile,
   UnauthorizedException, UploadedFile, UploadedFiles, UseFilters, UseGuards, UseInterceptors, ValidationPipe,
   VERSION_NEUTRAL, Version, VersioningType,
@@ -155,6 +160,7 @@ import type { UploadedFile as BunUploadedFile } from "nestjs-adapter-bun";
 
 const uploadDirectory = ${JSON.stringify(uploadDirectory)};
 const staticDirectory = ${JSON.stringify(staticDirectory)};
+const viewsDirectory = ${JSON.stringify(viewsDirectory)};
 const tlsKeyPath = ${JSON.stringify(tlsKey)};
 const tlsCertPath = ${JSON.stringify(tlsCert)};
 @WebSocketGateway({ path: "/ws" })
@@ -1637,6 +1643,72 @@ class StaticModule {}
       const response = await get("/assets/sample.txt", { range: \`bytes=\${id}-\${id}\` });
       assert.equal(response.status, 206);
       assert.equal(await response.text(), String(id));
+    }));
+  } finally {
+    await app.close();
+  }
+}
+@Controller("pages")
+class ViewsController {
+  @Get("hello/:name")
+  @Render("hello")
+  async hello(@Param("name") name: string) {
+    await delay(5);
+    return { name };
+  }
+  @Get("explicit")
+  @Render("hello.ejs")
+  explicit() { return { name: "explicit" }; }
+  @Get("missing")
+  @Render("not-found")
+  missing() { return {}; }
+  @Get("broken")
+  @Render("broken")
+  broken() { return {}; }
+}
+@Module({ controllers: [ViewsController] })
+class ViewsModule {}
+for (const custom of [false, true]) {
+  const adapter = process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter();
+  const app = await NestFactory.create(ViewsModule, adapter, { logger: false });
+  try {
+    app.setGlobalPrefix("api");
+    adapter.setBaseViewsDir([staticDirectory, viewsDirectory]);
+    adapter.setViewEngine(custom ? {
+      extension: "ejs",
+      render: (path, data, callback) => {
+        void (async () => {
+          await delay(5);
+          const template = await readFile(path, "utf8");
+          if (template.includes("missingVariable")) throw new Error("Fixture render failed");
+          if (!("name" in data) || typeof data.name !== "string") throw new Error("Missing view name");
+          return template.replace("<%= name %>", data.name);
+        })().then((html) => callback(null, html), (error: unknown) => callback(error));
+      },
+    } : "ejs");
+    await app.listen(0, "127.0.0.1");
+    const base = await app.getUrl();
+    const hello = await fetch(base + "/api/pages/hello/Ada");
+    assert.equal(hello.status, 200);
+    assert.match(hello.headers.get("content-type") ?? "", /^text\\/html/);
+    assert.equal(await hello.text(), "<h1>Hello Ada</h1>");
+    if (!custom) {
+      const escaped = await fetch(base + "/api/pages/hello/" + encodeURIComponent("<b>"));
+      assert.equal(await escaped.text(), "<h1>Hello &lt;b&gt;</h1>");
+    }
+    assert.equal(await (await fetch(base + "/api/pages/explicit")).text(), "<h1>Hello explicit</h1>");
+    const head = await fetch(base + "/api/pages/hello/Ada", { method: "HEAD" });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), "");
+    for (const path of ["missing", "broken"]) {
+      const response = await fetch(base + "/api/pages/" + path);
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), { statusCode: 500, message: "Internal server error" });
+    }
+    await Promise.all(Array.from({ length: 8 }, async (_, id) => {
+      const response = await fetch(base + "/api/pages/hello/guest-" + id);
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), \`<h1>Hello guest-\${id}</h1>\`);
     }));
   } finally {
     await app.close();

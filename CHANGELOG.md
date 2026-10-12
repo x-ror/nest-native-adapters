@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed MVC rendering coverage on Nest 10/11/12 and Node/Bun with EJS and
+  asynchronous custom engines, view lookup, HEAD, rendering errors and
+  concurrent template data.
 - Packed static asset coverage across Nest 10/11/12 and Node/Bun for
   caching, HEAD, ranges, preconditions, directory indexes, controller
   fallthrough and concurrent requests.
