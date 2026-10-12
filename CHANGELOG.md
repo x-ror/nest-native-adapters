@@ -10,7 +10,9 @@ version and one changelog. The format follows
 
 - Packed host-routing coverage on Nest 10/11/12 and Node/Bun: exact and
   parameterized hosts, host arrays, fallback controllers, proxy trust,
-  global prefixes and concurrent tenant isolation.
+  global prefixes and concurrent tenant isolation. Real HTTP consumers also
+  verify trusted/untrusted `X-Forwarded-*`, `ip`/`ips`, protocol, host,
+  hostname, secure and subdomain metadata.
 
 - Packed URI versioning coverage on Nest 10/11/12 and Node/Bun: controller/
   handler overrides, multiple versions, neutral/default versions, custom/

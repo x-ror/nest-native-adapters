@@ -1021,7 +1021,17 @@ class DefaultHostController {
     return { site: "default", id, hosts };
   }
 }
-@Module({ controllers: [AdminHostController, TenantHostController, AliasHostController, DefaultHostController] })
+@Controller("proxy")
+class ProxyMetadataController {
+  @Get()
+  inspect(@Req() request: NativeRequest) {
+    return {
+      ip: request.ip, ips: request.ips, protocol: request.protocol, host: request.host,
+      hostname: request.hostname, secure: request.secure, subdomains: request.subdomains,
+    };
+  }
+}
+@Module({ controllers: [AdminHostController, TenantHostController, AliasHostController, DefaultHostController, ProxyMetadataController] })
 class HostsModule {}
 for (const trustProxy of [false, true]) {
   const adapter = process.argv[2] === "bun"
@@ -1031,10 +1041,15 @@ for (const trustProxy of [false, true]) {
     app.setGlobalPrefix("api");
     await app.listen(0, "127.0.0.1");
     const endpoint = \`\${await app.getUrl()}/api/site/42\`;
-    const query = async (host: string, forwarded?: string) => {
+    const query = async (
+      host: string,
+      forwarded?: string,
+      headers: Record<string, string> = {},
+      path = "/api/site/42",
+    ) => {
       return new Promise<unknown>((resolve, reject) => {
-        const request = httpRequest(endpoint, {
-          headers: { host, ...(forwarded ? { "x-forwarded-host": forwarded } : {}) },
+        const request = httpRequest(new URL(path, endpoint), {
+          headers: { host, ...(forwarded ? { "x-forwarded-host": forwarded } : {}), ...headers },
         }, (response) => {
           const chunks: Buffer[] = [];
           response.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -1059,6 +1074,21 @@ for (const trustProxy of [false, true]) {
     assert.deepEqual(await query("direct.example.org", "proxy.example.test:8443"),
       trustProxy ? { site: "tenant", tenant: "proxy", id: "42" }
         : { site: "default", id: "42", hosts: {} });
+    const forwardedRequest = await query("direct.example.test", undefined, {
+      "x-forwarded-for": "198.51.100.1, 203.0.113.7",
+      "x-forwarded-proto": "https, http",
+      "x-forwarded-host": "tenant.api.example.test:8443, second.example.test",
+    }, "/api/proxy");
+    assert.deepEqual(forwardedRequest, trustProxy
+      ? {
+          ip: "198.51.100.1", ips: ["198.51.100.1", "203.0.113.7"], protocol: "https",
+          host: "tenant.api.example.test:8443", hostname: "tenant.api.example.test",
+          secure: true, subdomains: ["api", "tenant"],
+        }
+      : {
+          ip: "127.0.0.1", ips: [], protocol: "http", host: "direct.example.test",
+          hostname: "direct.example.test", secure: false, subdomains: ["direct"],
+        });
     await Promise.all(Array.from({ length: 8 }, async (_, index) => {
       const tenant = \`tenant-\${index}\`;
       assert.deepEqual(await query(\`\${tenant}.example.test\`), { site: "tenant", tenant, id: "42" });

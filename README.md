@@ -546,8 +546,11 @@ app.set("trust proxy", 1);
 With a trusted socket peer, `req.ip` becomes the nearest untrusted
 `X-Forwarded-For` entry, `req.ips` lists the trusted chain farthest first,
 `req.protocol` follows `X-Forwarded-Proto`, and `req.hostname` follows
-`X-Forwarded-Host`. The results match Express for the cases in the
-conformance suite. Invalid values, including a `/0` range, throw when the
+`X-Forwarded-Host`. The corresponding `req.host`, `req.secure` and
+`req.subdomains` reflect those resolved values. Real Nest HTTP consumers check
+both trusted and untrusted forwarded headers on Node and Bun; proxy-chain
+resolution is also compared with Express in the conformance suite. Invalid
+values, including a `/0` range, throw when the
 adapter is created or the setting is applied, so the app fails at startup as
 on Express; `null`, `false` and `""` trust nothing. `app.set()` accepts any
 setting like Express, but only `trust proxy` has an effect: `x-powered-by` is
