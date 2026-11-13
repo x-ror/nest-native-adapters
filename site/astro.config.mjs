@@ -3,7 +3,8 @@ import starlight from "@astrojs/starlight";
 
 export default defineConfig({
   site: "https://x-ror.github.io",
-  base: "/nest-native-adapters",
+  // CI overrides the base for pull request previews.
+  base: process.env.DOCS_BASE || "/nest-native-adapters",
   integrations: [
     starlight({
       title: "nest-native-adapters",
@@ -12,7 +13,7 @@ export default defineConfig({
         { icon: "github", label: "GitHub", href: "https://github.com/x-ror/nest-native-adapters" },
       ],
       editLink: {
-        baseUrl: "https://github.com/x-ror/nest-native-adapters/edit/main/docs/",
+        baseUrl: "https://github.com/x-ror/nest-native-adapters/edit/main/site/",
       },
       sidebar: [
         {

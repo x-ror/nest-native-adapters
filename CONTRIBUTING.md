@@ -95,14 +95,20 @@ token-based release workflow to test OIDC; it uses the workflow from its tag.
 
 ## Documentation
 
-The documentation site lives in `docs/` (Astro + Starlight). It is a
+The documentation site lives in `site/` (Astro + Starlight). It is a
 standalone project, not a workspace package:
 
 ```sh
-cd docs
+cd site
 pnpm install --ignore-workspace
 pnpm dev
 ```
 
-Pushes to `main` that touch `docs/` deploy it to GitHub Pages through the
-Docs workflow. Set the repository's Pages source to GitHub Actions once.
+The Docs workflow builds the site for every pull request that touches
+`site/` and publishes a preview at
+`https://x-ror.github.io/nest-native-adapters/pr-preview/pr-<number>/`,
+linked in a pull request comment. Closing the pull request removes the
+preview. Pushes to `main` publish the site itself. Both are pushed to the
+`gh-pages` branch, so set the repository's Pages source to "Deploy from a
+branch", `gh-pages`, `/ (root)`. Pull requests from forks are built but get
+no preview, because their workflow token cannot push.
