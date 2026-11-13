@@ -92,3 +92,17 @@ For a new package, bootstrap it through an authenticated manual publish before
 configuring its trusted publisher. After a successful OIDC publish, revoke
 unused publishing tokens and remove the `NPM_TOKEN` secret. Do not rerun an old
 token-based release workflow to test OIDC; it uses the workflow from its tag.
+
+## Documentation
+
+The documentation site lives in `docs/` (Astro + Starlight). It is a
+standalone project, not a workspace package:
+
+```sh
+cd docs
+pnpm install --ignore-workspace
+pnpm dev
+```
+
+Pushes to `main` that touch `docs/` deploy it to GitHub Pages through the
+Docs workflow. Set the repository's Pages source to GitHub Actions once.
