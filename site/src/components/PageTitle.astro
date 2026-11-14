@@ -1,0 +1,21 @@
+---
+// Starlight links "Overview" in the contents list to this id.
+const PAGE_TITLE_ID = "_top";
+import { currentClause } from "../clauses";
+
+const route = Astro.locals.starlightRoute;
+const clause = currentClause(route.sidebar as never);
+// Section headings and the contents list number themselves from this value.
+const clauseVar = clause ? `:root{--nna-clause:"${clause.number}"}` : "";
+---
+
+{clauseVar && <style is:inline set:html={clauseVar} />}
+<h1
+  id={PAGE_TITLE_ID}
+  class:list={["nna-title", { "has-clause": clause }]}
+  data-marks={route.entry.data.marks}
+>
+  {clause && <span class="nna-clause" aria-hidden="true">{clause.number}</span>}
+  <span>{route.entry.data.title}</span>
+</h1>
+{clause && <p class="nna-title-ident">Nest 10 / 11 / 12 · Node 22+ / Bun 1.4+</p>}

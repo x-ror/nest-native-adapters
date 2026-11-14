@@ -1,0 +1,547 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-14T00:00:00Z",
+  "title": "Design System: nest-native-adapters",
+  "extensions": {
+    "colorMeta": {
+      "nest-red": {
+        "role": "primary",
+        "displayName": "Nest Red",
+        "canonical": "oklch(58.8% 0.218 16.1)",
+        "tonalRamp": [
+          "#260001",
+          "#52000e",
+          "#830022",
+          "#b70038",
+          "#e03b58",
+          "#fa7481",
+          "#ffa6ad",
+          "#ffd6da"
+        ]
+      },
+      "nest-red-pressed": {
+        "role": "primary",
+        "displayName": "Nest Red Pressed",
+        "canonical": "oklch(50.9% 0.187 15.8)",
+        "tonalRamp": [
+          "#230002",
+          "#4d0012",
+          "#7b0e28",
+          "#ad243f",
+          "#d54c5f",
+          "#ef7d87",
+          "#ffacb1",
+          "#ffdadd"
+        ]
+      },
+      "band-ink": {
+        "role": "primary",
+        "displayName": "Band White",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ]
+      },
+      "red-ink": {
+        "role": "primary",
+        "displayName": "Red Ink",
+        "canonical": "oklch(50.6% 0.190 15.9)",
+        "tonalRamp": [
+          "#230002",
+          "#4e0011",
+          "#7c0b27",
+          "#ae213e",
+          "#d64a5e",
+          "#f17c86",
+          "#ffabb1",
+          "#ffd9dc"
+        ]
+      },
+      "red-ink-dark": {
+        "role": "primary",
+        "displayName": "Red Ink (graphite)",
+        "canonical": "oklch(71.8% 0.181 10.8)",
+        "tonalRamp": [
+          "#220004",
+          "#4b0018",
+          "#791230",
+          "#aa284a",
+          "#d14e6a",
+          "#ec7e90",
+          "#ffacb8",
+          "#ffdae2"
+        ]
+      },
+      "red-tint": {
+        "role": "primary",
+        "displayName": "Red Tint",
+        "canonical": "oklch(93.7% 0.024 1.3)",
+        "tonalRamp": [
+          "#0f090b",
+          "#2b2225",
+          "#4b3e41",
+          "#6c5c60",
+          "#8e7d81",
+          "#afa1a4",
+          "#d2c6c8",
+          "#f5ecee"
+        ]
+      },
+      "red-tint-dark": {
+        "role": "primary",
+        "displayName": "Red Tint (graphite)",
+        "canonical": "oklch(25.7% 0.060 3.6)",
+        "tonalRamp": [
+          "#14070a",
+          "#341e23",
+          "#57383f",
+          "#7c545e",
+          "#9f757f",
+          "#bf9aa2",
+          "#dec0c7",
+          "#fee8ed"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(21.3% 0.007 258.4)",
+        "tonalRamp": [
+          "#0a0b0c",
+          "#242527",
+          "#404245",
+          "#5f6165",
+          "#808286",
+          "#a3a5a8",
+          "#c7c9cc",
+          "#edeef0"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Ink (graphite)",
+        "canonical": "oklch(93.2% 0.004 121.6)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252524",
+          "#424240",
+          "#61615f",
+          "#828380",
+          "#a5a5a3",
+          "#c9c9c8",
+          "#eeefed"
+        ]
+      },
+      "mute": {
+        "role": "neutral",
+        "displayName": "Mute",
+        "canonical": "oklch(46.9% 0.010 253.9)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232528",
+          "#3f4246",
+          "#5e6266",
+          "#7f8388",
+          "#a2a5a9",
+          "#c7c9cd",
+          "#edeff1"
+        ]
+      },
+      "mute-dark": {
+        "role": "neutral",
+        "displayName": "Mute (graphite)",
+        "canonical": "oklch(73.0% 0.010 134.9)",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#242623",
+          "#40433f",
+          "#5f625d",
+          "#80847e",
+          "#a3a6a2",
+          "#c7cac6",
+          "#edefec"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Grey Rule",
+        "canonical": "oklch(88.1% 0.009 128.6)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242623",
+          "#41433f",
+          "#60625d",
+          "#81837e",
+          "#a4a6a2",
+          "#c8cac6",
+          "#eeefec"
+        ]
+      },
+      "rule-dark": {
+        "role": "neutral",
+        "displayName": "Grey Rule (graphite)",
+        "canonical": "oklch(33.5% 0.008 255.6)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#242527",
+          "#404245",
+          "#5e6165",
+          "#7f8387",
+          "#a2a5a9",
+          "#c7c9cc",
+          "#edeff1"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Standard Paper",
+        "canonical": "oklch(98.8% 0.003 106.4)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252524",
+          "#424241",
+          "#616160",
+          "#828281",
+          "#a5a5a4",
+          "#c9c9c8",
+          "#eeeeee"
+        ]
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Graphite Sheet",
+        "canonical": "oklch(19.5% 0.004 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#242526",
+          "#414244",
+          "#606163",
+          "#818285",
+          "#a4a5a7",
+          "#c8c9cb",
+          "#eeeef0"
+        ]
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Note Sheet",
+        "canonical": "oklch(96.2% 0.005 117.9)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252524",
+          "#424240",
+          "#61625e",
+          "#82837f",
+          "#a5a5a2",
+          "#c9c9c7",
+          "#eeefed"
+        ]
+      },
+      "paper-2-dark": {
+        "role": "neutral",
+        "displayName": "Note Sheet (graphite)",
+        "canonical": "oklch(23.0% 0.007 258.4)",
+        "tonalRamp": [
+          "#0a0b0c",
+          "#242527",
+          "#404245",
+          "#5f6165",
+          "#808286",
+          "#a3a5a8",
+          "#c8c9cc",
+          "#edeef0"
+        ]
+      },
+      "code-inline": {
+        "role": "neutral",
+        "displayName": "Inline Code",
+        "canonical": "oklch(94.6% 0.007 124.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252523",
+          "#41423f",
+          "#60625e",
+          "#81837f",
+          "#a4a6a2",
+          "#c8c9c7",
+          "#eeefed"
+        ]
+      },
+      "code-inline-dark": {
+        "role": "neutral",
+        "displayName": "Inline Code (graphite)",
+        "canonical": "oklch(27.5% 0.009 255.6)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232527",
+          "#404245",
+          "#5e6166",
+          "#7f8387",
+          "#a2a5a9",
+          "#c7c9cc",
+          "#edeff1"
+        ]
+      },
+      "code-plate": {
+        "role": "neutral",
+        "displayName": "Code Plate",
+        "canonical": "oklch(21.3% 0.007 258.4)",
+        "tonalRamp": [
+          "#0a0b0c",
+          "#242527",
+          "#404245",
+          "#5f6165",
+          "#808286",
+          "#a3a5a8",
+          "#c7c9cc",
+          "#edeef0"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The cover title only."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page title with its clause number in red at 600; 2.125rem below 50em."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section heads (h2) and the cover Contents head, ruled 1px ink above."
+      },
+      "title-sm": {
+        "displayName": "Title small",
+        "purpose": "Subsection heads (h3)."
+      },
+      "lede": {
+        "displayName": "Lede",
+        "purpose": "The cover statement only, max 34rem."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "The reading column; tables at 0.9375rem with tabular figures."
+      },
+      "label": {
+        "displayName": "Label (frame caps)",
+        "purpose": "Running head, group heads, table heads, note titles, On this page, pagination labels, button and action link. Uppercase."
+      },
+      "frame-item": {
+        "displayName": "Frame item",
+        "purpose": "Clause-tree items and on-page contents links, mixed case."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Code plates; inline code at 0.875em."
+      }
+    },
+    "shadows": [
+      {
+        "name": "none",
+        "value": "none",
+        "purpose": "The system is flat; Starlight and Expressive Code shadows are removed. Depth comes from rules and the paper-2 sheet."
+      }
+    ],
+    "rules": [
+      {
+        "name": "section-rule",
+        "value": "1px solid var(--nna-ink)",
+        "purpose": "Above h2 sections, group heads, the title panel, On this page, pagination links."
+      },
+      {
+        "name": "table-head-rule",
+        "value": "2px solid var(--nna-ink)",
+        "purpose": "Under table head rows."
+      },
+      {
+        "name": "hairline",
+        "value": "1px solid var(--nna-rule)",
+        "purpose": "Between table rows and scope rows; note borders; sidebar edge."
+      },
+      {
+        "name": "note-rule",
+        "value": "2px solid var(--nna-aside-rule)",
+        "purpose": "Top of printed notes: ink for note/tip/caution, red ink for deviation and danger."
+      },
+      {
+        "name": "plate-rule",
+        "value": "2px solid var(--nna-band)",
+        "purpose": "Top of code plates."
+      }
+    ],
+    "focus": [
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid var(--nna-red); outline-offset: 2px",
+        "purpose": "All focusable elements; white on the running head."
+      }
+    ],
+    "motion": [
+      {
+        "name": "button-fill",
+        "value": "background-color 150ms ease-out",
+        "purpose": "Primary button hover darkening; the only authored transition."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "50em",
+        "purpose": "Title size, scope grid, two-column contents."
+      },
+      {
+        "name": "wide",
+        "value": "72rem",
+        "purpose": "Hanging clause numbers (4.25rem); identifier moves into the running head."
+      },
+      {
+        "name": "copy-strip",
+        "value": "(hover: none), (max-width: 50rem)",
+        "purpose": "Code copy button gets its own strip above the first line."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action, on the cover. Square, Nest red, label caps.",
+      "html": "<a class=\"ds-button\" href=\"#\">Get started</a>",
+      "css": ".ds-button { display: inline-block; padding: 0.75rem 1.4rem; background: var(--nna-band, #e0234e); color: var(--nna-band-ink, #fff); font: 700 0.875rem/1 'Barlow Semi Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-decoration: none; border-radius: 0; transition: background-color 150ms ease-out; } .ds-button:hover { background: color-mix(in srgb, var(--nna-band, #e0234e) 82%, black); } .ds-button:focus-visible { outline: 2px solid var(--nna-red, #b8173e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Action Link",
+      "kind": "button",
+      "refersTo": "link-action",
+      "description": "Secondary action beside the primary button: red-ink label caps, underlined, no box.",
+      "html": "<a class=\"ds-link\" href=\"#\">View on GitHub</a>",
+      "css": ".ds-link { color: var(--nna-red, #b8173e); font: 700 0.875rem/1 'Barlow Semi Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; text-underline-offset: 0.3em; } .ds-link:hover { text-decoration-thickness: 2px; } .ds-link:focus-visible { outline: 2px solid var(--nna-red, #b8173e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Running Head",
+      "kind": "nav",
+      "refersTo": "running-head",
+      "description": "Filled Nest-red band with the name, document identifier and a white-outlined square search field.",
+      "html": "<header class=\"ds-head\"><a class=\"ds-head-title\" href=\"#\">nest-native-adapters <span>Nest 10 / 11 / 12 · Node 22+ / Bun 1.4+</span></a><button class=\"ds-head-search\">Search</button></header>",
+      "css": ".ds-head { display: flex; align-items: center; gap: 1.5rem; height: 3rem; padding: 0 1rem; background: var(--nna-band, #e0234e); color: #fff; } .ds-head-title { display: flex; gap: 1.5rem; color: #fff; text-decoration: none; font: 700 0.875rem/1 'Barlow Semi Condensed', 'Arial Narrow', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; } .ds-head-title span { font-weight: 500; } .ds-head-search { min-width: 14rem; padding: 0.4rem 0.75rem; text-align: start; border: 1px solid rgb(255 255 255 / 0.6); border-radius: 0; background: rgb(0 0 0 / 0.12); color: #fff; font: 500 0.875rem 'Barlow Semi Condensed', sans-serif; } .ds-head-search:hover { border-color: #fff; background: rgb(0 0 0 / 0.2); } .ds-head-search:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Clause Tree",
+      "kind": "nav",
+      "refersTo": "clause-item",
+      "description": "Numbered sidebar: ruled caps group head, N.M items in mixed case, current item in red.",
+      "html": "<nav class=\"ds-tree\"><p class=\"ds-tree-group\"><span>2</span>Guides</p><a href=\"#\"><span>2.5</span>Uploads</a><a href=\"#\" aria-current=\"page\"><span>2.6</span>CORS</a><a href=\"#\"><span>2.7</span>Cookies</a></nav>",
+      "css": ".ds-tree { font-family: 'Barlow Semi Condensed', 'Arial Narrow', sans-serif; font-size: 0.875rem; max-width: 16rem; } .ds-tree-group { display: flex; gap: 0.6rem; margin: 0; padding-top: 0.45rem; border-top: 1px solid var(--nna-ink, #17191c); font-weight: 700; line-height: 1.3; letter-spacing: 0.08em; text-transform: uppercase; color: var(--nna-ink, #17191c); } .ds-tree-group span, .ds-tree a span { min-width: 2.1rem; color: var(--nna-mute, #575b60); font-weight: 600; font-variant-numeric: tabular-nums; } .ds-tree a { display: flex; gap: 0.6rem; padding: 0.3rem 0; font-weight: 500; line-height: 1.3; letter-spacing: 0.02em; color: var(--nna-ink, #17191c); text-decoration: none; } .ds-tree a:hover { color: var(--nna-red, #b8173e); } .ds-tree a[aria-current='page'], .ds-tree a[aria-current='page'] span { color: var(--nna-red, #b8173e); font-weight: 700; } .ds-tree a:focus-visible { outline: 2px solid var(--nna-red, #b8173e); outline-offset: 2px; }"
+    },
+    {
+      "name": "Clause Title",
+      "kind": "custom",
+      "refersTo": "headline",
+      "description": "Page title with its clause number in red, hanging in the margin on wide screens.",
+      "html": "<h1 class=\"ds-title\"><span>2.6</span>CORS</h1>",
+      "css": ".ds-title { display: flex; align-items: baseline; gap: 0.75rem; margin: 0; padding-bottom: 1rem; border-bottom: 1px solid var(--nna-ink, #17191c); font: 700 2.75rem/1.1 'Barlow Semi Condensed', 'Arial Narrow', sans-serif; letter-spacing: -0.005em; color: var(--nna-ink, #17191c); } .ds-title span { color: var(--nna-red, #b8173e); font-weight: 600; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Deviation Note",
+      "kind": "card",
+      "refersTo": "note",
+      "description": "A deviation from Express printed in place: paper-2 sheet, red top rule, struck-equals mark, red caps title.",
+      "html": "<aside class=\"ds-dev\"><p class=\"ds-dev-title\"><a href=\"#\">Deviates from Express</a></p><p>A 204 preflight carries no <code>Content-Length</code> header.</p></aside>",
+      "css": ".ds-dev { border: 1px solid var(--nna-rule, #d6d9d3); border-top: 2px solid var(--nna-red, #b8173e); background: var(--nna-paper-2, #f2f3ef); padding: 0.9rem 1.15rem 1rem; border-radius: 0; font-family: 'Source Sans 3 Variable', sans-serif; color: var(--nna-ink, #17191c); } .ds-dev p { margin: 0.5rem 0 0; } .ds-dev .ds-dev-title { display: flex; align-items: center; gap: 0.5rem; margin: 0; font: 700 0.875rem/1.2 'Barlow Semi Condensed', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; } .ds-dev-title::before { content: ''; width: 0.85em; height: 0.85em; background: var(--nna-red, #b8173e); mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M0 3.2h10M0 6.8h10' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M7.6 0.4L2.4 9.6' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E\") center / contain no-repeat; } .ds-dev-title a { color: var(--nna-red, #b8173e); text-decoration: none; } .ds-dev-title a:hover { text-decoration: underline; } .ds-dev code { background: var(--nna-code-inline, #eceee9); padding: 0.1em 0.3em; font: 0.875em 'JetBrains Mono Variable', monospace; }"
+    },
+    {
+      "name": "Conformance Table",
+      "kind": "custom",
+      "refersTo": "label",
+      "description": "Ruled table with caps head over a 2px ink rule and SVG conformance marks with words.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>Feature</th><th>Node</th><th>Bun</th></tr></thead><tbody><tr><td>CORS</td><td><span class=\"ds-mark ds-yes\">Supported</span></td><td><span class=\"ds-mark ds-yes\">Supported</span></td></tr><tr><td>Socket.IO gateways</td><td><span class=\"ds-mark ds-yes\">Supported</span></td><td><span class=\"ds-mark ds-no\">Not supported</span></td></tr></tbody></table>",
+      "css": ".ds-table { border-collapse: collapse; font: 0.9375rem/1.6 'Source Sans 3 Variable', sans-serif; font-variant-numeric: tabular-nums; color: var(--nna-ink, #17191c); } .ds-table th { padding: 0.4rem 0.75rem 0.4rem 0; text-align: start; font: 700 0.875rem/1.3 'Barlow Semi Condensed', sans-serif; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 2px solid var(--nna-ink, #17191c); } .ds-table td { padding: 0.4rem 0.75rem 0.4rem 0; border-bottom: 1px solid var(--nna-rule, #d6d9d3); vertical-align: top; } .ds-mark { white-space: nowrap; } .ds-mark::before { content: ''; display: inline-block; width: 0.7em; height: 0.7em; margin-inline-end: 0.45em; background: currentColor; mask: var(--m) center / contain no-repeat; } .ds-yes { --m: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='5' r='4.5'/%3E%3C/svg%3E\"); } .ds-no { --m: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' stroke='black' stroke-width='2'/%3E%3C/svg%3E\"); color: var(--nna-red, #b8173e); font-weight: 600; }"
+    },
+    {
+      "name": "Code Plate",
+      "kind": "custom",
+      "refersTo": "code-plate",
+      "description": "One graphite plate in both themes, square, Nest-red top rule, no chrome.",
+      "html": "<pre class=\"ds-plate\"><code>npm install nestjs-adapter-node</code></pre>",
+      "css": ".ds-plate { margin: 0; padding: 1rem 1.1rem; background: #17191c; color: #e8e9e6; border-top: 2px solid var(--nna-band, #e0234e); border-radius: 0; font: 0.875rem/1.65 'JetBrains Mono Variable', ui-monospace, monospace; overflow-x: auto; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Conformance Standard",
+    "overview": "The site reads like an ISO/DIN standards booklet: every page is a numbered clause, every section heading carries its clause number, and every behavior that departs from Nest's Express adapter is printed in place beside the clause it affects. The reader always knows where they stand (clause number in the margin, current item in red in the clause tree) and moves by the numbered tree or by previous/next.\n\nThe world is printed, not rendered: three inks (black, Nest red, grey rule) on near-white standard paper, with a graphite sheet carrying the same inks in dark mode. Structure is drawn with hairline rules rather than boxes, shadows or tints. The frame (running head, clause tree, contents, table heads, note titles) is set in Barlow Semi Condensed at one size, so rank comes from weight, case and rule; the reading column is Source Sans 3 and code is JetBrains Mono. Density is reference density: calm body measure, tight frame.\n\nIt refuses the default docs shell: no blue accent, no icon cards, no rounded panels, no lifted surfaces.",
+    "keyCharacteristics": [
+      "Clause numbers (N.M, N.M.S) on titles, section heads, the clause tree and the contents, set in tabular figures.",
+      "A filled Nest-red running head; red elsewhere is ink, not fill.",
+      "Hairline rules above sections and under table heads instead of containers.",
+      "Square corners everywhere; no shadows.",
+      "Conformance stated by authored SVG mark plus word, never colour alone."
+    ],
+    "rules": [
+      {
+        "name": "The Three Inks Rule",
+        "body": "Outside code plates the page uses ink, Nest red and grey rule on paper. There is no second accent hue.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Ink Rule",
+        "body": "Filled Nest red appears only on the running head, the primary button and selection. Everywhere else red is a line or a glyph colour: clause number, link, current position, deviation.",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Note Rule",
+        "body": "Among printed notes, a red top rule belongs to deviations from Express and danger notes; note, tip and caution notes take an ink rule.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Frame Size Rule",
+        "body": "All frame text is 0.875rem. Rank in the frame comes from weight (500/600/700), case and rule, never from a second size.",
+        "section": "typography"
+      },
+      {
+        "name": "The Caps For Heads Rule",
+        "body": "Tracked caps are for short heads: group heads, table heads, the running head, note titles, button and action link. Long item labels (tree, contents) stay mixed case.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numerals Rule",
+        "body": "Every clause number, table and conformance column uses tabular figures so numbers align down the margin.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hanging Clause Rule",
+        "body": "On wide screens the clause number lives in the margin; text edges stay flush.",
+        "section": "layout"
+      },
+      {
+        "name": "The Printed Sheet Rule",
+        "body": "Nothing lifts off the page. If something needs separating, rule it.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do number every page and section from the clause tree (N.M, N.M.S) and set the numbers in tabular figures.",
+      "Do separate sections with a 1px ink rule above the head; separate rows with grey-rule hairlines.",
+      "Do keep all frame text at 0.875rem in Barlow Semi Condensed and rank it by weight, case and rule.",
+      "Do print a deviation from Express in place, as a red-ruled note beside the clause it affects.",
+      "Do state conformance with an authored SVG mark and a word.",
+      "Do keep red as line and glyph colour; fill only the running head, primary button and selection."
+    ],
+    "donts": [
+      "Don't round corners or add shadows.",
+      "Don't introduce a second accent hue or a blue link colour.",
+      "Don't give note, tip or caution notes a red rule; red notes mean deviation or danger.",
+      "Don't set long tree or contents items in tracked caps.",
+      "Don't signal conformance by colour alone, or with emoji or text glyphs.",
+      "Don't use icon cards or tinted panels to organise content; use numbered lists, ruled tables and definition lists."
+    ]
+  }
+}

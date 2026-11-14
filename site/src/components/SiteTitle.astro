@@ -1,0 +1,8 @@
+---
+const { siteTitle, siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="nna-site-title">
+  <span class="nna-name" translate="no">{siteTitle}</span>
+  <span class="nna-ident">Nest 10 / 11 / 12 · Node 22+ / Bun 1.4+</span>
+</a>
