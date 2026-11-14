@@ -10,6 +10,8 @@ export default defineConfig({
       title: "nest-native-adapters",
       description: "NestJS HTTP adapters for node:http and Bun.serve, without Express or Fastify.",
       favicon: "/favicon.svg",
+      // Pages are short and numbered; the clause tree is the only navigation.
+      tableOfContents: false,
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/x-ror/nest-native-adapters" },
       ],

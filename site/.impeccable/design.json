@@ -332,7 +332,7 @@
       },
       "label": {
         "displayName": "Label (frame caps)",
-        "purpose": "Running head, group heads, table heads, note titles, On this page, pagination labels, button and action link. Uppercase."
+        "purpose": "Running head, group heads, table heads, note titles, pagination labels, button and action link. Uppercase."
       },
       "frame-item": {
         "displayName": "Frame item",
@@ -354,7 +354,7 @@
       {
         "name": "section-rule",
         "value": "1px solid var(--nna-ink)",
-        "purpose": "Above h2 sections, group heads, the title panel, On this page, pagination links."
+        "purpose": "Above h2 sections, group heads, the title panel, pagination links."
       },
       {
         "name": "table-head-rule",
