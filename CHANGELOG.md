@@ -8,6 +8,9 @@ version and one changelog. The format follows
 
 ### Added
 
+- Packed bodyless response coverage on Nest 10/11/12 and Node/Bun: `204`, `205`,
+  `304` and HEAD with text, JSON, buffers and streams, framing headers and
+  unread-source cleanup.
 - Packed global-prefix exclusion coverage with URI versioning on Nest 10/11/12
   and Node/Bun: method-specific and wildcard exclusions, neutral routes,
   controller middleware, `@All()` methods and concurrent requests.
@@ -58,6 +61,10 @@ version and one changelog. The format follows
 
 ### Fixed
 
+- `205 Reset Content` responses use `Content-Length: 0` and remove
+  `Transfer-Encoding`, avoiding framing that promises an unsent body.
+- HEAD responses preserve the corresponding GET content length for text, JSON
+  and buffers, including UTF-8 byte lengths.
 - Legacy controller wildcard routes are normalized during HTTP route registration,
   preventing startup failures on older Nest cores that do not call the adapter's
   `normalizePath()`.

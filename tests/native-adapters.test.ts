@@ -1229,6 +1229,22 @@ describe("native Nest adapters", () => {
     const empty = new NativeResponse("GET").status(204).send("ignored");
     expect(await (await empty.done).text()).toBe("");
   });
+  it("retains GET representation lengths for HEAD and uses zero length for Reset Content", async () => {
+    for (const body of ["Привіт", Buffer.from("fixture"), { ok: true }]) {
+      const get = await new NativeResponse("GET").send(body).done;
+      const head = await new NativeResponse("HEAD").send(body).done;
+      expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
+      expect(await head.text()).toBe("");
+      const reset = await new NativeResponse("GET")
+        .status(205)
+        .setHeader("Content-Length", "999")
+        .setHeader("Transfer-Encoding", "chunked")
+        .send(body).done;
+      expect(reset.headers.get("content-length")).toBe("0");
+      expect(reset.headers.get("transfer-encoding")).toBeNull();
+      expect(await reset.text()).toBe("");
+    }
+  });
   it("supports hasHeader and removeHeader for Express-style middleware such as helmet", () => {
     const response = new NativeResponse("GET").setHeader("X-Powered-By", "x");
     expect(response.hasHeader("x-powered-by")).toBe(true);

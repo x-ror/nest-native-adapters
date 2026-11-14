@@ -13,6 +13,12 @@ does not apply to data the handler sends.
 Status, headers, cookies, redirects, HEAD and no-content responses and
 `StreamableFile` work as they do on Nest's Express adapter.
 
+HEAD preserves the corresponding GET's content length for buffered bodies
+without sending the body. Responses with status `204` or `304` discard the
+body and remove content type, content length and transfer encoding. Status
+`205 Reset Content` discards the body, sets `Content-Length: 0` and removes
+transfer encoding. Suppressed stream sources are destroyed without being read.
+
 `StreamableFile` supplies content type, disposition and length only when those
 headers have not already been set on the response. Buffers carry their length;
 streams without a configured length are sent without `Content-Length`.

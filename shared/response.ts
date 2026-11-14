@@ -413,15 +413,18 @@ export class NativeResponse {
       delete headers["content-type"];
       delete headers["content-length"];
       delete headers["transfer-encoding"];
+    } else if (status === 205) {
+      headers["content-length"] = "0";
+      delete headers["transfer-encoding"];
+    } else if (body !== null && headers["content-length"] === undefined) {
+      if (typeof body === "string") headers["content-length"] = String(Buffer.byteLength(body));
+      else if (body instanceof Uint8Array) headers["content-length"] = String(body.byteLength);
     }
     if (this.method === "HEAD" || status === 204 || status === 205 || status === 304) {
       // Nothing will read the stream: release a file, or discard direct writes.
       if (body === this.sse) this.sse?.resume();
       else if (body instanceof Readable) body.destroy();
       body = null;
-    } else if (body !== null && headers["content-length"] === undefined) {
-      if (typeof body === "string") headers["content-length"] = String(Buffer.byteLength(body));
-      else if (body instanceof Uint8Array) headers["content-length"] = String(body.byteLength);
     }
     try {
       this.commit(body);

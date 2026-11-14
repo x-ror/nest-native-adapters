@@ -2347,6 +2347,76 @@ class DownloadModule {}
     await app.close();
   }
 }
+const bodylessState = { closed: 0, reads: 0 };
+@Controller("bodyless")
+class BodylessController {
+  @Get(":status/:kind")
+  get(
+    @Param("status") status: string,
+    @Param("kind") kind: string,
+    @Res({ passthrough: true }) response: NativeResponse,
+  ) {
+    response.status(Number(status));
+    response.setHeader("x-bodyless", "fixture");
+    if (kind === "text") return "fixture";
+    if (kind === "json") return { ok: true };
+    if (kind === "buffer") return Buffer.from("fixture");
+    response.setHeader("Content-Length", "7");
+    if (Number(status) !== 200) response.setHeader("Transfer-Encoding", "chunked");
+    const source = new Readable({
+      read() {
+        bodylessState.reads++;
+        this.push("fixture");
+        this.push(null);
+      },
+    });
+    source.once("close", () => { bodylessState.closed++; });
+    return new StreamableFile(source, { type: "text/plain", length: 7 });
+  }
+}
+@Module({ controllers: [BodylessController] })
+class BodylessModule {}
+{
+  const app = await NestFactory.create(BodylessModule,
+    process.argv[2] === "bun" ? new BunHttpAdapter() : new NodeHttpAdapter(),
+    { logger: false });
+  try {
+    await app.listen(0, "127.0.0.1");
+    const base = (await app.getUrl()) + "/bodyless";
+    const verify = async (status: number, kind: string, method: string) => {
+      const response = await fetch(base + "/" + status + "/" + kind, {
+        method, signal: AbortSignal.timeout(3000),
+      });
+      assert.equal(response.status, status);
+      assert.equal(response.headers.get("x-bodyless"), "fixture");
+      assert.equal(response.headers.get("transfer-encoding"), null);
+      const length = status === 200 ? kind === "json" ? "11" : "7" : status === 205 ? "0" : null;
+      assert.equal(response.headers.get("content-length"), length,
+        "Bodyless response framing: " + method + " " + status + " " + kind);
+      if (status === 204 || status === 304) assert.equal(response.headers.get("content-type"), null);
+      else assert.ok(response.headers.get("content-type"));
+      const body = await response.text();
+      assert.equal(body, status === 200 && method === "GET"
+        ? kind === "json" ? '{"ok":true}' : "fixture" : "");
+    };
+    for (const status of [204, 205, 304]) {
+      for (const kind of ["text", "json", "buffer", "stream"]) {
+        for (const method of ["GET", "HEAD"]) await verify(status, kind, method);
+      }
+    }
+    for (const kind of ["text", "json", "buffer"]) {
+      await verify(200, kind, "GET");
+      await verify(200, kind, "HEAD");
+    }
+    await verify(200, "stream", "HEAD");
+    await Promise.all(Array.from({ length: 12 }, (_, id) =>
+      verify([204, 205, 304][id % 3]!, "stream", id % 2 ? "HEAD" : "GET")));
+    await waitFor(() => bodylessState.closed === 19, "Every suppressed source must close");
+    assert.equal(bodylessState.reads, 0, "Bodyless responses must not read their sources");
+  } finally {
+    await app.close();
+  }
+}
 let manualParserHandlers = 0;
 @Controller("manual-parser")
 class ManualParserController {

@@ -45,6 +45,7 @@ it("destroys a StreamableFile source without reading it for HEAD", async () => {
       this.push(null);
     },
   });
+
   const response = new NativeResponse("HEAD").send(
     new StreamableFile(stream, { type: "text/plain", length: 4 }),
   );
@@ -53,4 +54,29 @@ it("destroys a StreamableFile source without reading it for HEAD", async () => {
   expect(result.headers.get("content-length")).toBe("4");
   expect(stream.destroyed).toBe(true);
   expect(reads).toBe(0);
+});
+
+it("suppresses bodyless status streams and normalizes framing headers", async () => {
+  for (const status of [204, 205, 304]) {
+    let reads = 0;
+    const source = new Readable({
+      read() {
+        reads++;
+        this.push("data");
+        this.push(null);
+      },
+    });
+    const response = new NativeResponse("GET")
+      .status(status)
+      .setHeader("Transfer-Encoding", "chunked")
+      .send(new StreamableFile(source, { type: "text/plain", length: 4 }));
+    const result = await response.done;
+    expect(result.status).toBe(status);
+    expect(await result.text()).toBe("");
+    expect(result.headers.get("content-length")).toBe(status === 205 ? "0" : null);
+    expect(result.headers.get("content-type")).toBe(status === 205 ? "text/plain" : null);
+    expect(result.headers.get("transfer-encoding")).toBeNull();
+    expect(source.destroyed).toBe(true);
+    expect(reads).toBe(0);
+  }
 });
