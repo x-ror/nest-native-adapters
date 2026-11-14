@@ -25,7 +25,7 @@ export default defineConfig({
           ],
         },
         {
-          label: "Guides",
+          label: "Nest adapter",
           items: [
             "guides/validation-and-scope",
             "guides/routing",
