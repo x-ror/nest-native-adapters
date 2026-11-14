@@ -92,3 +92,23 @@ For a new package, bootstrap it through an authenticated manual publish before
 configuring its trusted publisher. After a successful OIDC publish, revoke
 unused publishing tokens and remove the `NPM_TOKEN` secret. Do not rerun an old
 token-based release workflow to test OIDC; it uses the workflow from its tag.
+
+## Documentation
+
+The documentation site lives in `site/` (Astro + Starlight). It is a
+standalone project, not a workspace package:
+
+```sh
+cd site
+pnpm install --ignore-workspace
+pnpm dev
+```
+
+The Docs workflow builds the site for every pull request that touches
+`site/` and publishes a preview at
+`https://x-ror.github.io/nest-native-adapters/pr-preview/pr-<number>/`,
+linked in a pull request comment. Closing the pull request removes the
+preview. Pushes to `main` publish the site itself. Both are pushed to the
+`gh-pages` branch, so set the repository's Pages source to "Deploy from a
+branch", `gh-pages`, `/ (root)`. Pull requests from forks are built but get
+no preview, because their workflow token cannot push.

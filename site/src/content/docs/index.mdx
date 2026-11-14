@@ -1,0 +1,35 @@
+---
+title: nest-native-adapters
+description: Run NestJS on node:http or Bun.serve without Express or Fastify.
+template: splash
+hero:
+  tagline: Run NestJS on <code>node:http</code> or <code>Bun.serve</code> — without Express or Fastify.
+  actions:
+    - text: Get started
+      link: getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/x-ror/nest-native-adapters
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <Card title="Only the HTTP layer changes" icon="puzzle">
+    Modules, DI, decorators, guards, pipes, interceptors, filters and the
+    lifecycle are still Nest's own.
+  </Card>
+  <Card title="Node.js and Bun" icon="rocket">
+    `NodeHttpAdapter` on `node:http` (Node.js 22+), `BunHttpAdapter` on
+    `Bun.serve` (Bun 1.4+).
+  </Card>
+  <Card title="Express-compatible behavior" icon="approve-check">
+    CORS, cookies, static files, uploads, versioning, SSE, views and trusted
+    proxies behave like Nest's Express adapter.
+  </Card>
+  <Card title="Nest 10, 11 and 12" icon="setting">
+    Tested against NestJS 10, 11 and 12 on both runtimes.
+  </Card>
+</CardGrid>

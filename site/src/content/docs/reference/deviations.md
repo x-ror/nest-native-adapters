@@ -1,7 +1,10 @@
-# Deviations from Nest's Express adapter
+---
+title: Deviations from Express
+description: Known differences from Nest's Express adapter.
+---
 
 The adapters aim to behave like `@nestjs/platform-express`. These are the
-known differences. The [README](README.md) has the usage details.
+known differences. The guides have the usage details.
 
 ## Request and response objects
 
@@ -67,4 +70,4 @@ known differences. The [README](README.md) has the usage details.
 ## Not supported
 
 - Deno.
-- GraphQL subscriptions (see the [Apollo driver](packages/apollo/README.md)).
+- GraphQL subscriptions (see the [Apollo driver](../../guides/graphql/)).

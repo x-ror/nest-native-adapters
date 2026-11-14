@@ -21,5 +21,5 @@ Nest's own. CORS, cookies, trusted proxies, static files, body parsers,
 
 Requires Bun 1.4+ and NestJS 10 (`@nestjs/common` 10.1.3+, `@nestjs/core`
 10.2.8+), 11.0.0+ or 12.1.2+. See the
-[repository README](https://github.com/x-ror/nest-native-adapters#readme) for
+[documentation](https://x-ror.github.io/nest-native-adapters/) for
 the compatibility matrix, migration notes from Express, and known deviations.

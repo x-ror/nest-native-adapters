@@ -17,10 +17,14 @@ export default defineConfig({
   resolve: { alias: aliases },
   test: { include: ["tests/**/*.test.ts"], environment: "node", restoreMocks: true },
   lint: {
-    ignorePatterns: ["**/dist/**", "**/node_modules/**"],
+    ignorePatterns: ["**/dist/**", "**/node_modules/**", "site/**"],
     options: { typeAware: true, typeCheck: true },
   },
-  fmt: { semi: true, singleQuote: false, ignorePatterns: ["**/dist/**", "**/node_modules/**"] },
+  fmt: {
+    semi: true,
+    singleQuote: false,
+    ignorePatterns: ["**/dist/**", "**/node_modules/**", "site/**"],
+  },
   pack: [
     {
       name: "apollo",
