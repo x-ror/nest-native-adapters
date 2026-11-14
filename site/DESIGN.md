@@ -182,7 +182,7 @@ Three inks on paper: black, Nest red and a grey rule; the dark theme swaps the p
 - **Title small** (700, 1.25rem): subsection heads (h3).
 - **Lede** (400, 1.375rem, 1.5, max 34rem): the cover statement only.
 - **Body** (400, 1.0625rem, 1.7): the reading column; tables drop to 0.9375rem with tabular figures.
-- **Label** (700, 0.875rem, 0.08em tracking, uppercase): running head, clause-tree group heads, contents group heads, table heads, note titles, "On this page", pagination labels, the primary button and action link.
+- **Label** (700, 0.875rem, 0.08em tracking, uppercase): running head, clause-tree group heads, contents group heads, table heads, note titles, pagination labels, the primary button and action link.
 - **Frame item** (500, 0.875rem, 0.02em, mixed case): clause-tree items and on-page contents links.
 - **Code** (0.875rem, 1.65): code plates; inline code at 0.875em.
 
@@ -232,7 +232,6 @@ A filled Nest-red band carrying the project name (label, 700) and, at 72rem and 
 ### Navigation (Clause Tree and Contents)
 - **Groups:** a 1px ink rule above, a numeral in mute, the label in tracked caps.
 - **Items:** frame-item type, numeral N.M in mute at 600; hover turns the item red; the current item turns red at 700, numeral included. No pills, no background.
-- **On-page contents:** "On this page" head in label caps under a 1px ink rule; entries numbered from the page's clause; current entry red at 700.
 - **Pagination:** a 1px ink rule above, label-caps "Previous"/"Next" in mute, page name at 1.25rem in ink, red on hover.
 
 ### Tables

@@ -500,60 +500,6 @@ main > .content-panel + .content-panel {
   text-transform: uppercase;
 }
 
-/* ---------- Contents (right) ---------- */
-
-starlight-toc h2,
-mobile-starlight-toc summary {
-  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--nna-ink);
-}
-
-starlight-toc h2 {
-  border-top: 1px solid var(--nna-ink);
-  padding-top: 0.45rem;
-}
-
-starlight-toc > nav > ul {
-  counter-reset: nna-toc;
-}
-
-starlight-toc a,
-mobile-starlight-toc a {
-  font-family: var(--nna-frame);
-  font-size: var(--nna-frame-size);
-  font-weight: 500;
-  color: var(--nna-ink);
-}
-
-starlight-toc > nav > ul > li + li {
-  counter-increment: nna-toc;
-}
-
-starlight-toc > nav > ul > li + li > a {
-  display: flex;
-  gap: 0.5rem;
-}
-
-starlight-toc > nav > ul > li + li > a::before {
-  content: var(--nna-clause) "." counter(nna-toc);
-  flex-shrink: 0;
-  color: var(--nna-mute);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-starlight-toc a[aria-current="true"],
-mobile-starlight-toc a[aria-current="true"] {
-  color: var(--nna-red);
-  font-weight: 700;
-}
-
-starlight-toc a[aria-current="true"]::before {
-  color: var(--nna-red) !important;
-}
-
 /* ---------- Previous / next and footer ---------- */
 
 .pagination-links a {
@@ -783,24 +729,6 @@ footer .meta a:hover {
   border-color: var(--nna-band-ink);
 }
 
-mobile-starlight-toc nav {
-  border-top: 0;
-  border-bottom: 1px solid var(--nna-ink);
-  background: var(--nna-paper);
-}
-
-mobile-starlight-toc .toggle {
-  border: 1px solid var(--nna-ink);
-  border-radius: 0;
-  background: transparent;
-  color: var(--nna-ink);
-}
-
-mobile-starlight-toc .dropdown {
-  border-radius: 0;
-  border: 1px solid var(--nna-ink);
-  box-shadow: none;
-}
 
 /* ---------- Deviations printed in place ---------- */
 
