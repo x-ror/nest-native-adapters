@@ -43,10 +43,13 @@ make credentialed requests and read the responses. Use an allowlist for
 credentialed APIs.
 :::
 
-Differences from Express:
+<aside class="nna-deviation">
+<p class="nna-deviation-title"><a href="../../reference/deviations/">Deviates from Express</a></p>
 
 - A `204` preflight carries no `Content-Length` header, as RFC 9110 requires.
 - `methods: undefined` sends no `Access-Control-Allow-Methods`, and
   `optionsSuccessStatus: undefined` falls back to `204`. The `cors` package
   fails the preflight with a 500 in both cases.
 - `allowCredentials: true` works as an alias of `credentials: true`.
+
+</aside>

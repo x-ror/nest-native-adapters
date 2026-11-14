@@ -1,0 +1,31 @@
+---
+import { clauseGroups } from "../clauses";
+
+const groups = clauseGroups(Astro.locals.starlightRoute.sidebar as never);
+---
+
+<nav class="nna-contents not-content" aria-labelledby="nna-contents-title">
+  <h2 id="nna-contents-title">Contents</h2>
+  <ol>
+    {
+      groups.map((group) => (
+        <li>
+          <span class="nna-contents-group">
+            <span class="nna-num">{group.number}</span>
+            {group.label}
+          </span>
+          <ol>
+            {group.clauses.map((clause) => (
+              <li>
+                <a href={clause.href}>
+                  <span class="nna-num">{clause.number}</span>
+                  <span>{clause.label}</span>
+                </a>
+              </li>
+            ))}
+          </ol>
+        </li>
+      ))
+    }
+  </ol>
+</nav>

@@ -2,34 +2,50 @@
 title: nest-native-adapters
 description: Run NestJS on node:http or Bun.serve without Express or Fastify.
 template: splash
-hero:
-  tagline: Run NestJS on <code>node:http</code> or <code>Bun.serve</code> — without Express or Fastify.
-  actions:
-    - text: Get started
-      link: getting-started/
-      icon: right-arrow
-    - text: View on GitHub
-      link: https://github.com/x-ror/nest-native-adapters
-      icon: external
-      variant: minimal
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import Contents from "../../components/Contents.astro";
 
-<CardGrid>
-  <Card title="Only the HTTP layer changes" icon="puzzle">
-    Modules, DI, decorators, guards, pipes, interceptors, filters and the
-    lifecycle are still Nest's own.
-  </Card>
-  <Card title="Node.js and Bun" icon="rocket">
-    `NodeHttpAdapter` on `node:http` (Node.js 22+), `BunHttpAdapter` on
-    `Bun.serve` (Bun 1.4+).
-  </Card>
-  <Card title="Express-compatible behavior" icon="approve-check">
-    CORS, cookies, static files, uploads, versioning, SSE, views and trusted
-    proxies behave like Nest's Express adapter.
-  </Card>
-  <Card title="Nest 10, 11 and 12" icon="setting">
-    Tested against NestJS 10, 11 and 12 on both runtimes.
-  </Card>
-</CardGrid>
+<div class="nna-cover not-content">
+  <p class="nna-cover-ident">Nest 10 / 11 / 12 · Node.js 22+ / Bun 1.4+ · Experimental</p>
+  <p class="nna-cover-lede">Run NestJS on <code>node:http</code> or <code>Bun.serve</code>, without Express or Fastify.</p>
+  <div class="nna-cover-actions">
+    <a class="nna-button" href="getting-started/">Get started</a>
+    <a class="nna-link" href="https://github.com/x-ror/nest-native-adapters">View on GitHub</a>
+  </div>
+</div>
+
+## Scope
+
+<dl class="nna-scope">
+  <dt>Only the HTTP layer changes</dt>
+  <dd>Modules, DI, decorators, guards, pipes, interceptors, filters and the lifecycle are still Nest's own.</dd>
+  <dt>Node.js and Bun</dt>
+  <dd>`NodeHttpAdapter` on `node:http` (Node.js 22+), `BunHttpAdapter` on `Bun.serve` (Bun 1.4+).</dd>
+  <dt>Express-compatible behavior</dt>
+  <dd>CORS, cookies, static files, uploads, versioning, SSE, views and trusted proxies behave like Nest's Express adapter. Known differences are listed in [Deviations from Express](reference/deviations/).</dd>
+  <dt>Nest 10, 11 and 12</dt>
+  <dd>Tested against NestJS 10, 11 and 12 on both runtimes.</dd>
+</dl>
+
+## Packages
+
+| Package               | Adapter                                  |
+| --------------------- | ---------------------------------------- |
+| `nestjs-adapter-node` | `NodeHttpAdapter`, backed by `node:http` |
+| `nestjs-adapter-bun`  | `BunHttpAdapter`, backed by `Bun.serve`  |
+
+```sh
+npm install nestjs-adapter-node   # or nestjs-adapter-bun
+```
+
+```ts
+import { NestFactory } from "@nestjs/core";
+import { NodeHttpAdapter } from "nestjs-adapter-node";
+import { AppModule } from "./app.js";
+
+const app = await NestFactory.create(AppModule, new NodeHttpAdapter());
+await app.listen(3000);
+```
+
+<Contents />

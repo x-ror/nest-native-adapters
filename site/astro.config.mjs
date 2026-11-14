@@ -9,11 +9,24 @@ export default defineConfig({
     starlight({
       title: "nest-native-adapters",
       description: "NestJS HTTP adapters for node:http and Bun.serve, without Express or Fastify.",
+      favicon: "/favicon.svg",
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/x-ror/nest-native-adapters" },
       ],
       editLink: {
         baseUrl: "https://github.com/x-ror/nest-native-adapters/edit/main/site/",
+      },
+      customCss: [
+        "@fontsource-variable/source-sans-3",
+        "@fontsource-variable/jetbrains-mono",
+        "@fontsource/barlow-semi-condensed/500.css",
+        "@fontsource/barlow-semi-condensed/600.css",
+        "@fontsource/barlow-semi-condensed/700.css",
+        "./src/styles/theme.css",
+      ],
+      components: {
+        PageTitle: "./src/components/PageTitle.astro",
+        SiteTitle: "./src/components/SiteTitle.astro",
       },
       sidebar: [
         {

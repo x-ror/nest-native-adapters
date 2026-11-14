@@ -1,1 +1,6 @@
 .astro/
+
+# Impeccable working files: keep the surface brief and design.json only.
+.impeccable/*
+!.impeccable/surfaces/
+!.impeccable/design.json

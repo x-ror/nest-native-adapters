@@ -1,0 +1,886 @@
+/*
+ * nest-native-adapters docs: a conformance standard.
+ * Three inks (black, Nest red, grey rule) on standard paper; dark mode is a
+ * graphite sheet with the same inks. The frame (running head, clause tree,
+ * contents, table heads) is set in Barlow Semi Condensed at one size: rank is
+ * weight, case and rule. The reading column is Source Sans 3; code is
+ * JetBrains Mono.
+ */
+
+/* ---------- Tokens ---------- */
+
+:root {
+  --nna-frame: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --nna-frame-size: 0.875rem;
+  --nna-hang: 0rem;
+
+  /* Dark: graphite sheet. */
+  --nna-paper: #141517;
+  --nna-paper-2: #1b1d20;
+  --nna-ink: #e8e9e6;
+  --nna-mute: #a5a9a3;
+  --nna-rule: #34373b;
+  --nna-red: #ff6b88;
+  --nna-band: #e0234e;
+  --nna-band-ink: #ffffff;
+  --nna-tint: #3a1520;
+  --nna-code-inline: #25282c;
+
+  --sl-font: "Source Sans 3 Variable";
+  --sl-font-mono: "JetBrains Mono Variable";
+  --sl-text-body: 1.0625rem;
+  --sl-line-height: 1.7;
+  --sl-content-width: 39rem;
+  --sl-nav-height: 3rem;
+
+  --sl-color-white: var(--nna-ink);
+  --sl-color-gray-1: var(--nna-ink);
+  --sl-color-gray-2: var(--nna-ink);
+  --sl-color-gray-3: var(--nna-mute);
+  --sl-color-gray-4: var(--nna-mute);
+  --sl-color-gray-5: var(--nna-rule);
+  --sl-color-gray-6: var(--nna-paper-2);
+  --sl-color-gray-7: var(--nna-paper-2);
+  --sl-color-black: var(--nna-paper);
+  --sl-color-accent-low: var(--nna-tint);
+  --sl-color-accent: var(--nna-band);
+  --sl-color-accent-high: var(--nna-red);
+  --sl-color-text: var(--nna-ink);
+  --sl-color-text-accent: var(--nna-red);
+  --sl-color-text-invert: var(--nna-band-ink);
+  --sl-color-bg: var(--nna-paper);
+  --sl-color-bg-nav: var(--nna-band);
+  --sl-color-bg-sidebar: var(--nna-paper);
+  --sl-color-bg-inline-code: var(--nna-code-inline);
+  --sl-color-bg-accent: var(--nna-band);
+  --sl-color-hairline-light: var(--nna-rule);
+  --sl-color-hairline: var(--nna-rule);
+  --sl-color-hairline-shade: var(--nna-rule);
+
+  color-scheme: dark;
+  accent-color: var(--nna-band);
+  scrollbar-color: var(--nna-rule) transparent;
+}
+
+:root[data-theme="light"] {
+  /* Light: standard paper. */
+  --nna-paper: #fbfbf9;
+  --nna-paper-2: #f2f3ef;
+  --nna-ink: #17191c;
+  --nna-mute: #575b60;
+  --nna-rule: #d6d9d3;
+  --nna-red: #b8173e;
+  --nna-band: #e0234e;
+  --nna-tint: #f9e4e9;
+  --nna-code-inline: #eceee9;
+
+  color-scheme: light;
+}
+
+@media (min-width: 72rem) {
+  :root {
+    --nna-hang: 4.25rem;
+  }
+}
+
+/* ---------- Browser surfaces ---------- */
+
+::selection {
+  background: var(--nna-band);
+  color: var(--nna-band-ink);
+}
+
+body {
+  background: var(--nna-paper);
+  caret-color: var(--nna-band);
+}
+
+:focus-visible {
+  outline: 2px solid var(--nna-red);
+  outline-offset: 2px;
+}
+
+/* ---------- Running head ---------- */
+
+header.header {
+  --sl-color-white: var(--nna-band-ink);
+  --sl-color-gray-1: var(--nna-band-ink);
+  --sl-color-gray-2: var(--nna-band-ink);
+  --sl-color-gray-3: var(--nna-band-ink);
+  --sl-color-gray-5: rgb(255 255 255 / 0.45);
+  --sl-color-text-accent: var(--nna-band-ink);
+  color: var(--nna-band-ink);
+  border-bottom: 0;
+}
+
+header.header :focus-visible {
+  outline-color: var(--nna-band-ink);
+}
+
+.nna-site-title {
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  min-width: 0;
+  color: var(--nna-band-ink);
+  text-decoration: none;
+  font: 700 var(--nna-frame-size) / 1 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.nna-site-title .nna-ident {
+  display: none;
+  font-weight: 500;
+}
+
+@media (min-width: 72rem) {
+  .nna-site-title .nna-ident {
+    display: inline;
+  }
+}
+
+site-search button[data-open-modal] {
+  border: 1px solid rgb(255 255 255 / 0.6);
+  border-radius: 0;
+  background: rgb(0 0 0 / 0.12);
+  color: var(--nna-band-ink);
+  font-family: var(--nna-frame);
+  font-size: var(--nna-frame-size);
+  font-weight: 500;
+}
+
+site-search button[data-open-modal]:hover {
+  border-color: var(--nna-band-ink);
+  background: rgb(0 0 0 / 0.2);
+}
+
+site-search button[data-open-modal] kbd,
+site-search button[data-open-modal] kbd kbd {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--nna-band-ink);
+  font-family: var(--nna-frame);
+}
+
+header.header starlight-theme-select select {
+  font-family: var(--nna-frame);
+  font-size: var(--nna-frame-size);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+header.header select option {
+  color: #17191c;
+  background: #fbfbf9;
+}
+
+/* Search dialog */
+site-search dialog {
+  border-radius: 0;
+  border: 1px solid var(--nna-ink);
+}
+
+/* ---------- Clause tree (sidebar) ---------- */
+
+.sidebar-pane {
+  border-inline-end: 1px solid var(--nna-rule);
+}
+
+.sidebar-content ul.top-level {
+  counter-reset: nna-group;
+}
+
+.sidebar-content .top-level > li {
+  counter-increment: nna-group;
+  counter-reset: nna-item;
+}
+
+.sidebar-content .top-level > li + li {
+  margin-top: 1.25rem;
+}
+
+.sidebar-content summary {
+  border-top: 1px solid var(--nna-ink);
+  padding-top: 0.45rem;
+  padding-inline: 0;
+}
+
+.sidebar-content summary .large {
+  display: flex;
+  gap: 0.6rem;
+  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-ink);
+}
+
+.sidebar-content summary .large::before {
+  content: counter(nna-group);
+  min-width: 2.1rem;
+  color: var(--nna-mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-content summary .caret {
+  color: var(--nna-mute);
+}
+
+.sidebar-content ul ul li {
+  counter-increment: nna-item;
+  margin-inline-start: 0;
+  border-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+.sidebar-content ul ul a {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-radius: 0;
+  font: 500 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.02em;
+  color: var(--nna-ink);
+}
+
+.sidebar-content ul ul a::before {
+  content: counter(nna-group) "." counter(nna-item);
+  min-width: 2.1rem;
+  flex-shrink: 0;
+  color: var(--nna-mute);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-content ul ul a:hover {
+  color: var(--nna-red);
+}
+
+.sidebar-content ul ul a[aria-current="page"],
+.sidebar-content ul ul a[aria-current="page"]:hover,
+.sidebar-content ul ul a[aria-current="page"]:focus {
+  background: transparent;
+  color: var(--nna-red);
+  font-weight: 700;
+}
+
+.sidebar-content ul ul a[aria-current="page"]::before {
+  color: var(--nna-red);
+}
+
+/* ---------- Title and clause numbers ---------- */
+
+.nna-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font: 700 2.125rem / 1.1 var(--nna-frame);
+  letter-spacing: -0.005em;
+  color: var(--nna-ink);
+  text-wrap: balance;
+}
+
+@media (min-width: 50em) {
+  .nna-title {
+    font-size: 2.75rem;
+  }
+}
+
+.nna-title .nna-clause {
+  flex-shrink: 0;
+  color: var(--nna-red);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 72rem) {
+  .nna-title.has-clause {
+    margin-inline-start: calc(-1 * var(--nna-hang));
+  }
+  .nna-title .nna-clause {
+    width: calc(var(--nna-hang) - 0.75rem);
+  }
+}
+
+/* Where the running head hides its identifier, the title repeats it. */
+.nna-title-ident {
+  margin: 0.5rem 0 0;
+  font: 600 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-mute);
+}
+
+@media (min-width: 72rem) {
+  .nna-title-ident {
+    display: none;
+  }
+}
+
+/* The rule under the title. */
+main > .content-panel + .content-panel {
+  border-top: 1px solid var(--nna-ink);
+}
+
+/* ---------- Reading column ---------- */
+
+.sl-markdown-content {
+  counter-reset: nna-sec;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--nna-red);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-thickness: 2px;
+}
+
+.sl-markdown-content :not(pre) > code {
+  border-radius: 0;
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+}
+
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  margin-top: 2.75rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--nna-ink);
+}
+
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4 {
+  font-family: var(--nna-frame);
+  font-weight: 700;
+  color: var(--nna-ink);
+  letter-spacing: -0.003em;
+  text-wrap: balance;
+}
+
+.sl-markdown-content h2 {
+  counter-increment: nna-sec;
+  counter-reset: nna-sub;
+  font-size: 1.625rem;
+  line-height: 1.2;
+}
+
+.sl-markdown-content h3 {
+  counter-increment: nna-sub;
+  font-size: 1.25rem;
+}
+
+.sl-markdown-content h2::before,
+.sl-markdown-content h3::before {
+  display: inline-block;
+  margin-inline-end: 0.6rem;
+  color: var(--nna-red);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sl-markdown-content h2::before {
+  content: var(--nna-clause) "." counter(nna-sec);
+}
+
+.sl-markdown-content h3::before {
+  content: var(--nna-clause) "." counter(nna-sec) "." counter(nna-sub);
+}
+
+@media (min-width: 72rem) {
+  .sl-markdown-content h2::before,
+  .sl-markdown-content h3::before {
+    width: calc(var(--nna-hang) - 0.75rem);
+    margin-inline-start: calc(-1 * var(--nna-hang));
+    margin-inline-end: 0.75rem;
+  }
+}
+
+/* ---------- Tables ---------- */
+
+.sl-markdown-content table {
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  border-collapse: collapse;
+}
+
+.sl-markdown-content th {
+  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: start;
+  color: var(--nna-ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--nna-ink);
+}
+
+.sl-markdown-content td {
+  border: 0;
+  border-bottom: 1px solid var(--nna-rule);
+  vertical-align: top;
+}
+
+.sl-markdown-content tr:nth-child(2n) {
+  background: transparent;
+}
+
+/* Conformance marks: a filled disc for supported, a cross for not supported. */
+.nna-mark {
+  white-space: nowrap;
+}
+
+.nna-mark::before {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-inline-end: 0.45em;
+  background: currentColor;
+  mask: var(--nna-mark) center / contain no-repeat;
+}
+
+.nna-yes {
+  --nna-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='5' r='4.5'/%3E%3C/svg%3E");
+}
+
+.nna-no {
+  --nna-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 1l8 8M9 1l-8 8' stroke='black' stroke-width='2'/%3E%3C/svg%3E");
+  color: var(--nna-red);
+  font-weight: 600;
+}
+
+/* ---------- Notes printed in place ---------- */
+
+.starlight-aside {
+  --nna-aside-rule: var(--nna-ink);
+  border: 1px solid var(--nna-rule);
+  border-top: 2px solid var(--nna-aside-rule);
+  background: var(--nna-paper-2);
+  padding: 0.9rem 1.15rem 1rem;
+}
+
+/* Red belongs to deviations from Express; warnings are set in ink, danger in red. */
+.starlight-aside--danger {
+  --nna-aside-rule: var(--nna-red);
+  --sl-color-asides-text-accent: var(--nna-red);
+}
+
+.starlight-aside--note,
+.starlight-aside--tip,
+.starlight-aside--caution {
+  --sl-color-asides-text-accent: var(--nna-ink);
+}
+
+.starlight-aside__title {
+  font: 700 var(--nna-frame-size) / 1.2 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.starlight-aside__icon {
+  font-size: 1.1em;
+}
+
+/* ---------- Code plates ---------- */
+
+.expressive-code .frame {
+  border-top: 2px solid var(--nna-band);
+}
+
+.expressive-code .frame.has-title .header,
+.expressive-code .frame.is-terminal .header {
+  font-family: var(--nna-frame);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ---------- Contents (right) ---------- */
+
+starlight-toc h2,
+mobile-starlight-toc summary {
+  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-ink);
+}
+
+starlight-toc h2 {
+  border-top: 1px solid var(--nna-ink);
+  padding-top: 0.45rem;
+}
+
+starlight-toc > nav > ul {
+  counter-reset: nna-toc;
+}
+
+starlight-toc a,
+mobile-starlight-toc a {
+  font-family: var(--nna-frame);
+  font-size: var(--nna-frame-size);
+  font-weight: 500;
+  color: var(--nna-ink);
+}
+
+starlight-toc > nav > ul > li + li {
+  counter-increment: nna-toc;
+}
+
+starlight-toc > nav > ul > li + li > a {
+  display: flex;
+  gap: 0.5rem;
+}
+
+starlight-toc > nav > ul > li + li > a::before {
+  content: var(--nna-clause) "." counter(nna-toc);
+  flex-shrink: 0;
+  color: var(--nna-mute);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+starlight-toc a[aria-current="true"],
+mobile-starlight-toc a[aria-current="true"] {
+  color: var(--nna-red);
+  font-weight: 700;
+}
+
+starlight-toc a[aria-current="true"]::before {
+  color: var(--nna-red) !important;
+}
+
+/* ---------- Previous / next and footer ---------- */
+
+.pagination-links a {
+  border: 0;
+  border-top: 1px solid var(--nna-ink);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0.6rem 0 0;
+  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-mute);
+}
+
+.pagination-links a .link-title {
+  margin-top: 0.2rem;
+  font-size: 1.25rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--nna-ink);
+}
+
+.pagination-links a:hover .link-title {
+  color: var(--nna-red);
+}
+
+footer .meta,
+footer .meta a {
+  font-family: var(--nna-frame);
+  font-size: var(--nna-frame-size);
+  color: var(--nna-mute);
+}
+
+footer .meta a:hover {
+  color: var(--nna-red);
+}
+
+/* ---------- Cover (index) ---------- */
+
+:root:not([data-has-sidebar]) {
+  --sl-content-width: 50rem;
+}
+
+:root:not([data-has-sidebar]) .nna-title {
+  margin-top: 3rem;
+  font-size: clamp(2.5rem, 7vw, 4.75rem);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.nna-cover {
+  padding-bottom: 1.5rem;
+}
+
+.nna-cover-ident {
+  margin: 0;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--nna-rule);
+  font: 600 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-mute);
+}
+
+.nna-cover-lede {
+  max-width: 34rem;
+  margin: 1.5rem 0 0;
+  font-size: 1.375rem;
+  line-height: 1.5;
+  color: var(--nna-ink);
+}
+
+.nna-cover-lede code {
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+  background: var(--nna-code-inline);
+}
+
+.nna-cover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+  margin-top: 1.75rem;
+}
+
+.nna-button {
+  display: inline-block;
+  padding: 0.75rem 1.4rem;
+  background: var(--nna-band);
+  color: var(--nna-band-ink);
+  font: 700 var(--nna-frame-size) / 1 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: background-color 150ms ease-out;
+}
+
+.nna-button:hover {
+  background: color-mix(in srgb, var(--nna-band) 82%, black);
+  color: var(--nna-band-ink);
+}
+
+.nna-link {
+  color: var(--nna-red);
+  font: 700 var(--nna-frame-size) / 1 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-underline-offset: 0.3em;
+}
+
+.nna-scope {
+  margin: 0;
+}
+
+.sl-markdown-content .nna-scope dt {
+  margin: 0;
+  padding-top: 0.75rem;
+  font: 700 1.125rem / 1.3 var(--nna-frame);
+  color: var(--nna-ink);
+}
+
+.sl-markdown-content .nna-scope dd {
+  margin: 0.25rem 0 0;
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--nna-rule);
+}
+
+@media (min-width: 50em) {
+  .nna-scope {
+    display: grid;
+    grid-template-columns: 15rem 1fr;
+  }
+  .sl-markdown-content .nna-scope dt,
+  .sl-markdown-content .nna-scope dd {
+    margin: 0;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--nna-rule);
+  }
+  .sl-markdown-content .nna-scope dt {
+    padding-inline-end: 1.5rem;
+  }
+}
+
+.nna-contents {
+  margin-top: 3rem;
+}
+
+.nna-contents h2 {
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--nna-ink);
+  font: 700 1.625rem / 1.2 var(--nna-frame);
+  color: var(--nna-ink);
+}
+
+.nna-contents ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nna-contents > ol {
+  margin-top: 1.25rem;
+  column-gap: 3rem;
+}
+
+.nna-contents > ol > li {
+  break-inside: avoid;
+  padding-bottom: 1.5rem;
+}
+
+@media (min-width: 50em) {
+  .nna-contents > ol {
+    columns: 2;
+  }
+}
+
+.nna-contents-group {
+  display: flex;
+  gap: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--nna-rule);
+  font: 700 var(--nna-frame-size) / 1.3 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nna-ink);
+}
+
+.nna-contents a {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  font: 500 1rem / 1.35 var(--nna-frame);
+  color: var(--nna-ink);
+  text-decoration: none;
+}
+
+.nna-contents a:hover span:last-child {
+  color: var(--nna-red);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.nna-num {
+  min-width: 2.1rem;
+  flex-shrink: 0;
+  color: var(--nna-mute);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Small screens ---------- */
+
+.sl-menu-button {
+  border: 1px solid rgb(255 255 255 / 0.6);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nna-band-ink);
+  box-shadow: none;
+}
+
+.sl-menu-button:hover {
+  border-color: var(--nna-band-ink);
+}
+
+mobile-starlight-toc nav {
+  border-top: 0;
+  border-bottom: 1px solid var(--nna-ink);
+  background: var(--nna-paper);
+}
+
+mobile-starlight-toc .toggle {
+  border: 1px solid var(--nna-ink);
+  border-radius: 0;
+  background: transparent;
+  color: var(--nna-ink);
+}
+
+mobile-starlight-toc .dropdown {
+  border-radius: 0;
+  border: 1px solid var(--nna-ink);
+  box-shadow: none;
+}
+
+/* ---------- Deviations printed in place ---------- */
+
+.nna-deviation {
+  border: 1px solid var(--nna-rule);
+  border-top: 2px solid var(--nna-red);
+  background: var(--nna-paper-2);
+  padding: 0.9rem 1.15rem 1rem;
+}
+
+.sl-markdown-content .nna-deviation > :first-child {
+  margin-top: 0;
+}
+
+.sl-markdown-content .nna-deviation-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font: 700 var(--nna-frame-size) / 1.2 var(--nna-frame);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nna-deviation-title::before,
+main:has(.nna-title[data-marks="deviates"]) .sl-markdown-content > ul > li::before {
+  content: "";
+  flex-shrink: 0;
+  width: 0.85em;
+  height: 0.85em;
+  background: var(--nna-red);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M0 3.2h10M0 6.8h10' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M7.6 0.4L2.4 9.6' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .nna-deviation-title a {
+  color: var(--nna-red);
+  text-decoration: none;
+}
+
+.sl-markdown-content .nna-deviation-title a:hover {
+  text-decoration: underline;
+}
+
+.sl-markdown-content .nna-deviation-title + * {
+  margin-top: 0.5rem;
+}
+
+/* On "Deviations from Express" every item carries the deviation mark. */
+main:has(.nna-title[data-marks="deviates"]) .sl-markdown-content > ul {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+main:has(.nna-title[data-marks="deviates"]) .sl-markdown-content > ul > li {
+  position: relative;
+  padding-inline-start: 1.6em;
+}
+
+main:has(.nna-title[data-marks="deviates"]) .sl-markdown-content > ul > li::before {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.45em;
+  width: 0.8em;
+  height: 0.8em;
+}
+
+.expressive-code .copy button {
+  border-radius: 0;
+}
+
+/* Where the copy button is always shown (touch, narrow screens) it gets its own
+   strip above the first line, so scrolled code never runs under it. */
+@media (hover: none), (max-width: 50rem) {
+  .expressive-code .frame:has(.copy) pre > code {
+    padding-top: 2.5rem;
+  }
+}
+
+/* Keep package names whole. */
+
+.sl-markdown-content td code {
+  white-space: nowrap;
+}
