@@ -64,6 +64,11 @@ With plain <code dir="auto">@Res()</code>, the handler must send the response it
 does not apply to data the handler sends.</p>
 <p>Status, headers, cookies, redirects, HEAD and no-content responses and
 <code dir="auto">StreamableFile</code> work as they do on Nest’s Express adapter.</p>
+<p>HEAD preserves the corresponding GET’s content length for buffered bodies
+without sending the body. Responses with status <code dir="auto">204</code> or <code dir="auto">304</code> discard the
+body and remove content type, content length and transfer encoding. Status
+<code dir="auto">205 Reset Content</code> discards the body, sets <code dir="auto">Content-Length: 0</code> and removes
+transfer encoding. Suppressed stream sources are destroyed without being read.</p>
 <p><code dir="auto">StreamableFile</code> supplies content type, disposition and length only when those
 headers have not already been set on the response. Buffers carry their length;
 streams without a configured length are sent without <code dir="auto">Content-Length</code>.
